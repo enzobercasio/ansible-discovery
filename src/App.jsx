@@ -491,7 +491,74 @@ const JSON_SCHEMA = {
 /* ------------------------------------------------------------------ */
 /*  Seed — cross-team environment provisioning                         */
 /* ------------------------------------------------------------------ */
+/* Lay out a mostly-linear automated flow: steps left-to-right in their lanes,
+   plus optional external "report" nodes that named steps write to. */
+function flow(teams, seq, externals) {
+  const laneIdx = (t) => Math.max(0, teams.findIndex((x) => x.id === t));
+  const Y = (i) => i * LANE_H + PAD + 22;
+  const X = (i) => 20 + i * 250;
+  const nodes = seq.map((st, i) => {
+    const n = { id: `s_${i}`, type: st.type, team: st.team, label: st.label, x: X(i), y: Y(laneIdx(st.team)), systems: st.systems || [], inputs: st.inputs || [], integration: "api", scores: st.type === "task" ? (st.scores || { frequency: 5, standardisation: 5, errorProneness: 2, complexity: 2 }) : {} };
+    if (st.type === "task") { n.metrics = st.metrics || { resources: 1, processTime: 5, leadTime: 10, pctCA: 98 }; if (st.reusable) { n.reuseClaim = true; n.reuseParam = true; n.reuseOwner = true; } }
+    return n;
+  });
+  const edges = [];
+  for (let i = 0; i < seq.length - 1; i++) edges.push({ id: uid("e"), source: `s_${i}`, target: `s_${i + 1}`, type: "sequence", artifact: "" });
+  (externals || []).forEach((ex, k) => {
+    const id = `x_${k}`;
+    nodes.push({ id, type: "external", team: ex.team, label: ex.label, x: X(ex.at ?? seq.length - 1), y: Y(laneIdx(ex.team)), integration: ex.integration || "eda_event", systems: [], inputs: [], scores: {} });
+    (ex.from || []).forEach((fi) => edges.push({ id: uid("e"), source: `s_${fi}`, target: id, type: "sequence", artifact: "" }));
+  });
+  return { teams, nodes, edges };
+}
+
+const T3 = [{ id: "platform", name: "Platform", color: "#0D9488" }, { id: "security", name: "Security", color: "#7C3AED" }, { id: "servicemgmt", name: "Service Mgmt", color: "#D97706" }];
+
 function seed(variant = "current") {
+  /* ---- to-be (automated) domain examples ---- */
+  if (variant === "windows") return flow(T3, [
+    { type: "start", team: "platform", label: "Server build requested" },
+    { type: "task", team: "platform", label: "Provision Windows Server", systems: ["windows"], inputs: ["hostname", "ou", "size"], reusable: true, metrics: { resources: 1, processTime: 8, leadTime: 15, pctCA: 99 } },
+    { type: "task", team: "security", label: "Apply CIS hardening", systems: ["windows"], inputs: ["cis_profile"], reusable: true, metrics: { resources: 1, processTime: 6, leadTime: 10, pctCA: 98 } },
+    { type: "task", team: "platform", label: "Join AD & configure roles", systems: ["windows", "active_directory"], inputs: ["domain", "roles"], reusable: true, metrics: { resources: 1, processTime: 5, leadTime: 8, pctCA: 99 } },
+    { type: "end", team: "platform", label: "Server ready" },
+  ], [{ team: "servicemgmt", label: "ServiceNow CMDB", integration: "eda_event", from: [3], at: 3 }]);
+
+  if (variant === "rhel") return flow(T3, [
+    { type: "start", team: "platform", label: "Host build requested" },
+    { type: "task", team: "platform", label: "Provision RHEL host", systems: ["rhel"], inputs: ["hostname", "subscription"], reusable: true, metrics: { resources: 1, processTime: 6, leadTime: 12, pctCA: 99 } },
+    { type: "task", team: "platform", label: "Register & patch (Satellite)", systems: ["rhel", "satellite"], inputs: ["content_view"], reusable: true, metrics: { resources: 1, processTime: 5, leadTime: 10, pctCA: 98 } },
+    { type: "task", team: "security", label: "Apply STIG hardening", systems: ["rhel"], inputs: ["stig_profile"], reusable: true, metrics: { resources: 1, processTime: 7, leadTime: 11, pctCA: 98 } },
+    { type: "end", team: "platform", label: "Compliant host ready" },
+  ], [{ team: "servicemgmt", label: "CMDB", integration: "eda_event", from: [3], at: 3 }]);
+
+  if (variant === "aws") return flow(
+    [{ id: "platform", name: "Cloud Platform", color: "#0D9488" }, { id: "security", name: "Security", color: "#7C3AED" }, { id: "servicemgmt", name: "Service Mgmt", color: "#D97706" }], [
+    { type: "start", team: "platform", label: "Environment requested" },
+    { type: "task", team: "platform", label: "Provision VPC & networking", systems: ["aws_vpc"], inputs: ["cidr", "region"], reusable: true, metrics: { resources: 1, processTime: 6, leadTime: 10, pctCA: 99 } },
+    { type: "task", team: "platform", label: "Provision EC2 & storage", systems: ["aws_ec2", "aws_ebs"], inputs: ["instance_type", "ami"], reusable: true, metrics: { resources: 1, processTime: 8, leadTime: 14, pctCA: 99 } },
+    { type: "task", team: "security", label: "Apply IAM guardrails", systems: ["aws_iam"], inputs: ["policy_set"], reusable: true, metrics: { resources: 1, processTime: 5, leadTime: 9, pctCA: 98 } },
+    { type: "end", team: "platform", label: "Environment ready" },
+  ], [{ team: "servicemgmt", label: "CMDB / cost tags", integration: "eda_event", from: [2, 3], at: 3 }]);
+
+  if (variant === "network") return flow(
+    [{ id: "network", name: "Network", color: "#2563EB" }, { id: "security", name: "Security", color: "#7C3AED" }, { id: "servicemgmt", name: "Service Mgmt", color: "#D97706" }], [
+    { type: "start", team: "network", label: "Change requested" },
+    { type: "task", team: "network", label: "Backup running config", systems: ["network_devices"], inputs: ["device_group"], reusable: true, metrics: { resources: 1, processTime: 4, leadTime: 6, pctCA: 99 } },
+    { type: "approval", team: "servicemgmt", label: "Change approval (CAB)" },
+    { type: "task", team: "network", label: "Push config (VLAN/ACL)", systems: ["network_devices"], inputs: ["config_template"], reusable: true, metrics: { resources: 1, processTime: 6, leadTime: 10, pctCA: 98 } },
+    { type: "task", team: "security", label: "Compliance validation", systems: ["network_devices"], inputs: ["compliance_policy"], reusable: true, metrics: { resources: 1, processTime: 5, leadTime: 8, pctCA: 99 } },
+    { type: "end", team: "network", label: "Change complete" },
+  ], [{ team: "servicemgmt", label: "NetBox / CMDB", integration: "eda_event", from: [3, 4], at: 4 }]);
+
+  if (variant === "openshift") return flow(T3, [
+    { type: "start", team: "platform", label: "Onboarding requested" },
+    { type: "task", team: "platform", label: "Provision OCP project", systems: ["openshift"], inputs: ["project_name", "team"], reusable: true, metrics: { resources: 1, processTime: 5, leadTime: 8, pctCA: 99 } },
+    { type: "task", team: "security", label: "Apply RBAC, quotas & policy", systems: ["openshift", "rhacs"], inputs: ["quota_tier", "roles"], reusable: true, metrics: { resources: 1, processTime: 4, leadTime: 7, pctCA: 98 } },
+    { type: "task", team: "platform", label: "Deploy workload (GitOps)", systems: ["openshift", "argocd"], inputs: ["app_repo", "image_tag"], reusable: true, metrics: { resources: 1, processTime: 6, leadTime: 10, pctCA: 98 } },
+    { type: "end", team: "platform", label: "Workload running" },
+  ], [{ team: "servicemgmt", label: "ServiceNow CMDB", integration: "eda_event", from: [3], at: 3 }]);
+
   const teams = [
     { id: "app", name: "App", color: "#2563EB" },
     { id: "platform", name: "Platform", color: "#0D9488" },
@@ -674,7 +741,8 @@ export default function App() {
 
   const copy = async (text, key) => { try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(""), 1400); } catch {} };
   const download = (text, name, type) => { const b = new Blob([text], { type }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); };
-  const loadExample = (v) => { const f = seed(v); setTeams(f.teams); setNodes(f.nodes); setEdges(f.edges); setProcessName(v === "automated" ? "app_deploy_automated" : "app_deploy_current"); setVariant(v); setSel(null); };
+  const PROC_NAME = { current: "app_deploy_current", automated: "app_deploy_automated", windows: "windows_server_build", rhel: "rhel_host_build", aws: "aws_environment_build", network: "network_change", openshift: "openshift_onboarding" };
+  const loadExample = (v) => { const f = seed(v); setTeams(f.teams); setNodes(f.nodes); setEdges(f.edges); setProcessName(PROC_NAME[v] || "imported_process"); setVariant(v); setSel(null); };
   const flash = (ok, text) => { setImportMsg({ ok, text }); setTimeout(() => setImportMsg(null), 4500); };
   const onImportFile = (e) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -750,8 +818,17 @@ export default function App() {
             <Eraser size={14} /> {confirmClear ? "Confirm clear?" : "Clear"}
           </button>
           <select className="pinput" style={{ width: "auto", cursor: "pointer" }} value={variant} onChange={(e) => loadExample(e.target.value)} title="Load an example process">
-            <option value="current">Example: Current (manual)</option>
-            <option value="automated">Example: Automated (Ansible)</option>
+            <optgroup label="Before / after">
+              <option value="current">Current (manual)</option>
+              <option value="automated">Automated (Ansible)</option>
+            </optgroup>
+            <optgroup label="To-be by domain">
+              <option value="windows">Windows</option>
+              <option value="rhel">RHEL</option>
+              <option value="aws">AWS</option>
+              <option value="network">Network</option>
+              <option value="openshift">OpenShift / Containers</option>
+            </optgroup>
           </select>
           <input ref={fileRef} type="file" accept=".yml,.yaml,text/yaml,text/plain" style={{ display: "none" }} onChange={onImportFile} />
           <button className="btn ghost" onClick={() => fileRef.current?.click()} title="Import a workflow spec (YAML) to edit"><Upload size={14} /> Import</button>
