@@ -69,6 +69,7 @@ no promotion.
 - **Backlog** — every role ranked by suitability, tagged with its owning team and
   flagged `handoff` / `reusable`. This is your prioritised, fundable roadmap.
 - **Handoffs** — every cross-team dependency and external dependency, with counts.
+- **Metrics** — the Metrics-Based Process Mapping baseline: total process/lead time, activity ratio (share of lead time actually spent working), and rolled %C&A (compounded first-pass quality). Set each step's metrics in the Edit tab.
   This is the coordination map: each row is wait-time your automation removes.
 
 ## 6. Export

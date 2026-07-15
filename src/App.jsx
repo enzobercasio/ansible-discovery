@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useMemo, useEffect } from "react"
 import {
   Plus, GitBranch, Play, Square, Trash2, Copy, Download, Check, Info,
   RotateCcw, ListOrdered, FileCode, Gauge, Server, ArrowRight,
-  ShieldCheck, ExternalLink, Users, ArrowLeftRight, Eraser, FileDown, Repeat, Upload,
+  ShieldCheck, ExternalLink, Users, ArrowLeftRight, Eraser, FileDown, Repeat, Upload, Timer,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -45,6 +45,22 @@ function bandOf(score) {
   if (score >= 5) return { key: "plan", label: "Plan", color: T.plan };
   return { key: "defer", label: "Defer", color: T.defer };
 }
+/* Metrics-Based Process Mapping (MBPM) — per-step baseline metrics */
+const metricsOf = (n) => {
+  const m = n.metrics || {};
+  return { resources: m.resources ?? 1, processTime: m.processTime ?? 0, leadTime: m.leadTime ?? 0, pctCA: m.pctCA ?? 100 };
+};
+function mbpmSummary(tasks) {
+  let pt = 0, lt = 0, res = 0, rolled = 1, n = 0;
+  tasks.forEach((t) => { const m = metricsOf(t); pt += m.processTime; lt += m.leadTime; res += m.resources; rolled *= m.pctCA / 100; n++; });
+  return {
+    count: n, totalPT: Math.round(pt), totalLT: Math.round(lt), resources: res,
+    activityRatio: lt > 0 ? Math.round((pt / lt) * 1000) / 10 : null,   // % of lead time spent working
+    rolledCA: n ? Math.round(rolled * 1000) / 10 : null,                 // compounded first-pass quality
+  };
+}
+const ratioColor = (r) => (r == null ? T.faint : r < 25 ? T.accent : r < 50 ? T.plan : T.quick);
+const caColor = (c) => (c == null ? T.faint : c < 80 ? T.accent : c < 95 ? T.plan : T.quick);
 const laneIndex = (teams, teamId) => Math.max(0, teams.findIndex((t) => t.id === teamId));
 const clampToLane = (y, idx) =>
   Math.min((idx + 1) * LANE_H - NODE_H - PAD, Math.max(idx * LANE_H + PAD + 22, y));
@@ -77,15 +93,17 @@ function buildSpec(processName, nodes, edges, teams) {
 
   const tasks = nodes.filter((n) => n.type === "task");
   const roles = tasks.map((t) => {
-    const sc = scoreOf(t), s = t.scores || {};
+    const sc = scoreOf(t), s = t.scores || {}, mm = metricsOf(t);
     return {
       name: slug(t.label), label: t.label, owner_team: t.team,
       priority_score: sc, band: bandOf(sc).key, reusable: isReusable(t),
       suitability: { frequency: s.frequency ?? 3, standardisation: s.standardisation ?? 3, error_proneness: s.errorProneness ?? 3, complexity: s.complexity ?? 3 },
+      metrics: { resources: mm.resources, process_time: mm.processTime, lead_time: mm.leadTime, pct_complete_accurate: mm.pctCA },
       target_systems: (t.systems || []).slice().sort(), inputs: (t.inputs || []).slice(),
       depends_on: predsOf(t.id), consumes: consumesOf(t.id), handoff: isHandoff(t),
     };
   }).sort((a, b) => b.priority_score - a.priority_score);
+  const baseline = mbpmSummary(tasks);
 
   const approvals = nodes.filter((n) => n.type === "approval")
     .map((n) => ({ name: slug(n.label), owner_team: n.team, depends_on: predsOf(n.id) }));
@@ -137,6 +155,7 @@ function buildSpec(processName, nodes, edges, teams) {
   return {
     process: slug(processName), teams: teams.map((t) => t.id),
     target_systems: [...new Set(tasks.flatMap((t) => t.systems || []))].sort(),
+    baseline,
     roles, approvals, external_dependencies, handoffs, workflow,
   };
 }
@@ -148,12 +167,21 @@ function toYaml(spec) {
   o += `generated_by: ansible-automation-discovery-canvas\n`;
   o += `teams: ${A(spec.teams)}\n`;
   o += `target_systems: ${A(spec.target_systems)}\n`;
+  if (spec.baseline) {
+    const b = spec.baseline;
+    o += `baseline:            # metrics-based process mapping (current state)\n`;
+    o += `  total_process_time: ${b.totalPT}\n  total_lead_time: ${b.totalLT}\n`;
+    o += `  activity_ratio_pct: ${b.activityRatio == null ? "null" : b.activityRatio}\n`;
+    o += `  rolled_complete_accurate_pct: ${b.rolledCA == null ? "null" : b.rolledCA}\n`;
+    o += `  total_resources: ${b.resources}\n`;
+  }
   o += `roles:\n`;
   if (!spec.roles.length) o += "  []\n";
   spec.roles.forEach((r) => {
     o += `  - name: ${r.name}\n    label: ${JSON.stringify(r.label)}\n    owner_team: ${r.owner_team}\n`;
     o += `    priority_score: ${r.priority_score}\n    band: ${r.band}\n    reusable: ${r.reusable}\n`;
     o += `    suitability: { frequency: ${r.suitability.frequency}, standardisation: ${r.suitability.standardisation}, error_proneness: ${r.suitability.error_proneness}, complexity: ${r.suitability.complexity} }\n`;
+    o += `    metrics: { resources: ${r.metrics.resources}, process_time: ${r.metrics.process_time}, lead_time: ${r.metrics.lead_time}, pct_complete_accurate: ${r.metrics.pct_complete_accurate} }\n`;
     o += `    target_systems: ${A(r.target_systems)}\n    inputs: ${A(r.inputs)}\n`;
     o += `    depends_on: ${A(r.depends_on)}\n    handoff: ${r.handoff}\n`;
     if (r.consumes.length) { o += `    consumes:\n`; r.consumes.forEach((c) => (o += `      - from: ${c.from}\n        artifact: ${c.artifact}\n`)); }
@@ -387,6 +415,7 @@ function specToGraph(spec) {
       systems: type === "task" ? (rec.target_systems || []).slice() : [],
       inputs: type === "task" ? (rec.inputs || []).slice() : [],
       integration: "api", reuseClaim: reusable, reuseParam: reusable, reuseOwner: reusable,
+      metrics: type === "task" && rec.metrics ? { resources: rec.metrics.resources ?? 1, processTime: rec.metrics.process_time ?? 0, leadTime: rec.metrics.lead_time ?? 0, pctCA: rec.metrics.pct_complete_accurate ?? 100 } : undefined,
       scores: type === "task" ? { frequency: su.frequency ?? 3, standardisation: su.standardisation ?? 3, errorProneness: su.error_proneness ?? 3, complexity: su.complexity ?? 3 } : {},
     });
   };
@@ -447,6 +476,7 @@ const JSON_SCHEMA = {
         name: { type: "string" }, owner_team: { type: "string" },
         priority_score: { type: "number" }, band: { enum: ["quick_win", "plan", "defer"] }, reusable: { type: "boolean" },
           suitability: { type: "object", properties: { frequency: { type: "number" }, standardisation: { type: "number" }, error_proneness: { type: "number" }, complexity: { type: "number" } } },
+          metrics: { type: "object", properties: { resources: { type: "number" }, process_time: { type: "number" }, lead_time: { type: "number" }, pct_complete_accurate: { type: "number" } } },
         depends_on: { type: "array", items: { type: "string" } },
         consumes: { type: "array", items: { type: "object", required: ["from", "artifact"] } },
         handoff: { type: "boolean" },
@@ -461,54 +491,74 @@ const JSON_SCHEMA = {
 /* ------------------------------------------------------------------ */
 /*  Seed — cross-team environment provisioning                         */
 /* ------------------------------------------------------------------ */
-function seed(variant = "ec2") {
+function seed(variant = "current") {
   const teams = [
-    { id: "platform", name: "Platform", color: "#0D9488" },
     { id: "app", name: "App", color: "#2563EB" },
+    { id: "platform", name: "Platform", color: "#0D9488" },
+    { id: "netsec", name: "Network / Security", color: "#7C3AED" },
     { id: "servicemgmt", name: "Service Mgmt", color: "#D97706" },
   ];
   const Y = (i) => i * LANE_H + PAD + 22;
 
-  if (variant === "s3") {
-    // S3 + CloudFront: the static site is decoupled from the EC2 box.
-    // Two independent tracks, no Platform -> App handoff, both report to CMDB.
+  if (variant === "automated") {
+    // Future state: same deployment, automated with Ansible. Manual steps and
+    // their handoffs are removed as waste; two reusable roles + a fast approval
+    // remain; the CMDB is updated automatically via an EDA event.
     const nodes = [
-      { id: "n_start", type: "start", team: "app", label: "Deployment requested", x: 30, y: Y(1), systems: [], inputs: [], scores: {} },
-      { id: "n_ec2", type: "task", team: "platform", label: "Provision EC2 instance", x: 320, y: Y(0),
-        systems: ["aws_ec2"], inputs: ["instance_type", "ami_id", "subnet_id"], reuseClaim: true, reuseParam: true, reuseOwner: true, scores: { frequency: 4, standardisation: 4, errorProneness: 3, complexity: 3 } },
-      { id: "n_web", type: "task", team: "app", label: "Deploy static website", x: 320, y: Y(1),
-        systems: ["aws_s3", "aws_cloudfront"], inputs: ["bucket_name", "site_bundle", "distribution_id"], scores: { frequency: 4, standardisation: 5, errorProneness: 2, complexity: 1 } },
-      { id: "n_cmdb", type: "external", team: "servicemgmt", label: "CMDB", x: 700, y: Y(2), integration: "api", systems: [], inputs: [], scores: {} },
-      { id: "n_end", type: "end", team: "app", label: "Deployment complete", x: 700, y: Y(1), systems: [], inputs: [], scores: {} },
+      { id: "a_start", type: "start", team: "app", label: "Deployment requested", x: 20, y: Y(0), systems: [], inputs: [], scores: {} },
+      { id: "a_prov", type: "task", team: "platform", label: "Provision environment", x: 280, y: Y(1),
+        systems: ["aws_ec2"], inputs: ["env_name", "instance_type"], reuseClaim: true, reuseParam: true, reuseOwner: true,
+        metrics: { resources: 1, processTime: 10, leadTime: 20, pctCA: 99 }, scores: { frequency: 5, standardisation: 5, errorProneness: 2, complexity: 2 } },
+      { id: "a_appr", type: "approval", team: "netsec", label: "Security approval", x: 540, y: Y(2), systems: [], inputs: [], scores: {} },
+      { id: "a_deploy", type: "task", team: "app", label: "Deploy application", x: 800, y: Y(0),
+        systems: ["aws_ec2"], inputs: ["artifact_id"], reuseClaim: true, reuseParam: true, reuseOwner: true,
+        metrics: { resources: 1, processTime: 6, leadTime: 12, pctCA: 98 }, scores: { frequency: 5, standardisation: 5, errorProneness: 2, complexity: 2 } },
+      { id: "a_cmdb", type: "external", team: "servicemgmt", label: "CMDB", x: 1060, y: Y(3), integration: "eda_event", systems: [], inputs: [], scores: {} },
+      { id: "a_end", type: "end", team: "app", label: "Live", x: 1080, y: Y(0), systems: [], inputs: [], scores: {} },
     ];
     const edges = [
-      { id: uid("e"), source: "n_start", target: "n_ec2", type: "sequence", artifact: "" },
-      { id: uid("e"), source: "n_start", target: "n_web", type: "sequence", artifact: "" },
-      { id: uid("e"), source: "n_ec2", target: "n_cmdb", type: "sequence", artifact: "" },   // EC2 record added to CMDB
-      { id: uid("e"), source: "n_web", target: "n_cmdb", type: "sequence", artifact: "" },   // application record added to CMDB
-      { id: uid("e"), source: "n_ec2", target: "n_end", type: "sequence", artifact: "" },
-      { id: uid("e"), source: "n_web", target: "n_end", type: "sequence", artifact: "" },
+      { id: uid("e"), source: "a_start", target: "a_prov", type: "sequence", artifact: "" },
+      { id: uid("e"), source: "a_prov", target: "a_appr", type: "sequence", artifact: "" },
+      { id: uid("e"), source: "a_appr", target: "a_deploy", type: "sequence", artifact: "" },
+      { id: uid("e"), source: "a_prov", target: "a_cmdb", type: "sequence", artifact: "" },   // auto-registered
+      { id: uid("e"), source: "a_deploy", target: "a_cmdb", type: "sequence", artifact: "" }, // auto-registered
+      { id: uid("e"), source: "a_deploy", target: "a_end", type: "sequence", artifact: "" },
     ];
     return { teams, nodes, edges };
   }
 
-  // EC2-hosted: the static site is served from the EC2 instance, so the
-  // website deploy depends on the instance (a Platform -> App handoff).
+  // Current state: the same deployment done manually. Ticket queues and manual
+  // hand-offs balloon lead time; every cross-lane arrow is a handoff.
+  const X = (i) => 20 + i * 245;
   const nodes = [
-    { id: "n_start", type: "start", team: "app", label: "Deployment requested", x: 30, y: Y(1), systems: [], inputs: [], scores: {} },
-    { id: "n_ec2", type: "task", team: "platform", label: "Provision EC2 instance", x: 300, y: Y(0),
-      systems: ["aws_ec2"], inputs: ["instance_type", "ami_id", "subnet_id"], reuseClaim: true, reuseParam: true, reuseOwner: true, scores: { frequency: 4, standardisation: 4, errorProneness: 3, complexity: 3 } },
-    { id: "n_web", type: "task", team: "app", label: "Deploy static website", x: 610, y: Y(1),
-      systems: ["aws_ec2"], inputs: ["instance_id", "site_bundle"], scores: { frequency: 4, standardisation: 5, errorProneness: 2, complexity: 2 } },
-    { id: "n_cmdb", type: "external", team: "servicemgmt", label: "CMDB", x: 900, y: Y(2), integration: "api", systems: [], inputs: [], scores: {} },
-    { id: "n_end", type: "end", team: "app", label: "Website live", x: 920, y: Y(1), systems: [], inputs: [], scores: {} },
+    { id: "c_start", type: "start", team: "app", label: "Deployment requested", x: X(0), y: Y(0), systems: [], inputs: [], scores: {} },
+    { id: "c_ticket", type: "task", team: "app", label: "Raise infra ticket", x: X(1), y: Y(0),
+      systems: ["itsm"], inputs: ["request_form"], metrics: { resources: 1, processTime: 15, leadTime: 120, pctCA: 85 }, scores: { frequency: 5, standardisation: 3, errorProneness: 4, complexity: 2 } },
+    { id: "c_prov", type: "task", team: "platform", label: "Provision EC2 instance", x: X(2), y: Y(1),
+      systems: ["aws_ec2"], inputs: ["instance_type", "ami_id", "subnet_id"], metrics: { resources: 1, processTime: 45, leadTime: 480, pctCA: 80 }, scores: { frequency: 5, standardisation: 4, errorProneness: 4, complexity: 3 } },
+    { id: "c_fwreq", type: "task", team: "app", label: "Raise firewall request", x: X(3), y: Y(0),
+      systems: ["itsm"], inputs: ["ports", "cidr"], metrics: { resources: 1, processTime: 10, leadTime: 90, pctCA: 80 }, scores: { frequency: 4, standardisation: 3, errorProneness: 4, complexity: 2 } },
+    { id: "c_review", type: "approval", team: "netsec", label: "Security review", x: X(4), y: Y(2), systems: [], inputs: [], scores: {} },
+    { id: "c_fw", type: "task", team: "netsec", label: "Configure firewall", x: X(5), y: Y(2),
+      systems: ["firewalls"], inputs: ["ports", "cidr"], metrics: { resources: 1, processTime: 30, leadTime: 240, pctCA: 75 }, scores: { frequency: 4, standardisation: 3, errorProneness: 5, complexity: 3 } },
+    { id: "c_deploy", type: "task", team: "app", label: "Deploy application", x: X(6), y: Y(0),
+      systems: ["aws_ec2"], inputs: ["artifact_id"], metrics: { resources: 1, processTime: 40, leadTime: 180, pctCA: 80 }, scores: { frequency: 5, standardisation: 4, errorProneness: 4, complexity: 3 } },
+    { id: "c_cmdb", type: "task", team: "servicemgmt", label: "Update CMDB", x: X(7), y: Y(3),
+      systems: ["cmdb"], inputs: ["ci_details"], metrics: { resources: 1, processTime: 20, leadTime: 120, pctCA: 70 }, scores: { frequency: 4, standardisation: 4, errorProneness: 5, complexity: 1 } },
+    { id: "c_smoke", type: "task", team: "app", label: "Manual smoke test", x: X(8), y: Y(0),
+      systems: ["aws_ec2"], inputs: ["test_checklist"], metrics: { resources: 1, processTime: 25, leadTime: 60, pctCA: 75 }, scores: { frequency: 5, standardisation: 3, errorProneness: 4, complexity: 2 } },
+    { id: "c_end", type: "end", team: "app", label: "Live", x: X(9), y: Y(0), systems: [], inputs: [], scores: {} },
   ];
   const edges = [
-    { id: uid("e"), source: "n_start", target: "n_ec2", type: "sequence", artifact: "" },
-    { id: uid("e"), source: "n_ec2", target: "n_web", type: "data", artifact: "instance_id" },   // Platform -> App handoff
-    { id: uid("e"), source: "n_ec2", target: "n_cmdb", type: "sequence", artifact: "" },          // EC2 record added to CMDB
-    { id: uid("e"), source: "n_web", target: "n_cmdb", type: "sequence", artifact: "" },          // application record added to CMDB
-    { id: uid("e"), source: "n_web", target: "n_end", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_start", target: "c_ticket", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_ticket", target: "c_prov", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_prov", target: "c_fwreq", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_fwreq", target: "c_review", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_review", target: "c_fw", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_fw", target: "c_deploy", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_deploy", target: "c_cmdb", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_cmdb", target: "c_smoke", type: "sequence", artifact: "" },
+    { id: uid("e"), source: "c_smoke", target: "c_end", type: "sequence", artifact: "" },
   ];
   return { teams, nodes, edges };
 }
@@ -521,14 +571,14 @@ export default function App() {
   const [teams, setTeams] = useState(s0.teams);
   const [nodes, setNodes] = useState(s0.nodes);
   const [edges, setEdges] = useState(s0.edges);
-  const [processName, setProcessName] = useState("ec2_web_deployment");
+  const [processName, setProcessName] = useState("app_deploy_current");
   const [sel, setSel] = useState(null);
   const [tab, setTab] = useState("inspector");
   const [connecting, setConnecting] = useState(null);
   const [copied, setCopied] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [exporting, setExporting] = useState("");
-  const [variant, setVariant] = useState("ec2");
+  const [variant, setVariant] = useState("current");
   const [importMsg, setImportMsg] = useState(null);
   const fileRef = useRef(null);
   const worldRef = useRef(null);
@@ -568,6 +618,7 @@ export default function App() {
       label: type === "task" ? "New step" : type === "approval" ? "Approval" : type === "gateway" ? "Decision?" : type === "external" ? "External system" : type === "start" ? "Trigger" : "Done",
       x: 80, y: clampToLane(PAD + 22, 0),
       systems: [], inputs: [], integration: "api", reuseClaim: false, reuseParam: false, reuseOwner: false,
+      metrics: type === "task" ? { resources: 1, processTime: 0, leadTime: 0, pctCA: 100 } : undefined,
       scores: type === "task" ? { frequency: 3, standardisation: 3, errorProneness: 3, complexity: 3 } : {},
     };
     setNodes((ns) => [...ns, n]);
@@ -623,7 +674,7 @@ export default function App() {
 
   const copy = async (text, key) => { try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(""), 1400); } catch {} };
   const download = (text, name, type) => { const b = new Blob([text], { type }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); };
-  const loadExample = (v) => { const f = seed(v); setTeams(f.teams); setNodes(f.nodes); setEdges(f.edges); setProcessName(v === "s3" ? "s3_cloudfront_site" : "ec2_web_deployment"); setVariant(v); setSel(null); };
+  const loadExample = (v) => { const f = seed(v); setTeams(f.teams); setNodes(f.nodes); setEdges(f.edges); setProcessName(v === "automated" ? "app_deploy_automated" : "app_deploy_current"); setVariant(v); setSel(null); };
   const flash = (ok, text) => { setImportMsg({ ok, text }); setTimeout(() => setImportMsg(null), 4500); };
   const onImportFile = (e) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -699,8 +750,8 @@ export default function App() {
             <Eraser size={14} /> {confirmClear ? "Confirm clear?" : "Clear"}
           </button>
           <select className="pinput" style={{ width: "auto", cursor: "pointer" }} value={variant} onChange={(e) => loadExample(e.target.value)} title="Load an example process">
-            <option value="ec2">Example: EC2-hosted</option>
-            <option value="s3">Example: S3 + CloudFront</option>
+            <option value="current">Example: Current (manual)</option>
+            <option value="automated">Example: Automated (Ansible)</option>
           </select>
           <input ref={fileRef} type="file" accept=".yml,.yaml,text/yaml,text/plain" style={{ display: "none" }} onChange={onImportFile} />
           <button className="btn ghost" onClick={() => fileRef.current?.click()} title="Import a workflow spec (YAML) to edit"><Upload size={14} /> Import</button>
@@ -845,7 +896,7 @@ export default function App() {
         {/* panel */}
         <aside className="panel">
           <div className="tabs">
-            {[["inspector", "Edit", Info], ["backlog", "Backlog", ListOrdered], ["handoffs", "Handoffs", ArrowLeftRight], ["export", "Export", FileCode]].map(([k, label, Icon]) => (
+            {[["inspector", "Edit", Info], ["backlog", "Backlog", ListOrdered], ["handoffs", "Handoffs", ArrowLeftRight], ["metrics", "Metrics", Timer], ["export", "Export", FileCode]].map(([k, label, Icon]) => (
               <button key={k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}><Icon size={13} /> {label}</button>
             ))}
           </div>
@@ -914,6 +965,40 @@ export default function App() {
                 ) : null}
               </div>
             )}
+
+            {tab === "metrics" && (() => {
+              const b = spec.baseline || { count: 0, totalPT: 0, totalLT: 0, resources: 0, activityRatio: null, rolledCA: null };
+              const wait = Math.max(0, b.totalLT - b.totalPT);
+              return (
+                <div>
+                  <div className="seclabel" style={{ marginTop: 0 }}>Metrics-based process mapping</div>
+                  <p className="help">A baseline of the manual process, in the style of the Open Practice Library MBPM practice. Set each step's metrics in the Edit tab.</p>
+                  {!b.count && <Empty text="Add Step nodes and set their process metrics to see the baseline." />}
+                  {b.count ? (
+                    <>
+                      <div className="mstat">
+                        <div><div className="mstatbig mono">{b.totalPT}<span className="munitbig">min</span></div><div className="mstatlbl">Total process time</div></div>
+                        <div><div className="mstatbig mono">{b.totalLT}<span className="munitbig">min</span></div><div className="mstatlbl">Total lead time</div></div>
+                        <div><div className="mstatbig mono" style={{ color: ratioColor(b.activityRatio) }}>{b.activityRatio == null ? "\u2014" : b.activityRatio}<span className="munitbig">%</span></div><div className="mstatlbl">Activity ratio</div></div>
+                        <div><div className="mstatbig mono" style={{ color: caColor(b.rolledCA) }}>{b.rolledCA == null ? "\u2014" : b.rolledCA}<span className="munitbig">%</span></div><div className="mstatlbl">Rolled %C&amp;A</div></div>
+                      </div>
+                      <p className="help">
+                        <b>Activity ratio</b> is the share of lead time actually spent working ({b.totalPT} of {b.totalLT} min) &mdash; the other {wait} min is waiting, most of it at cross-team handoffs. <b>Rolled %C&amp;A</b> compounds first-pass quality across every step.
+                      </p>
+                      <div className="seclabel">Per step</div>
+                      {spec.roles.map((r) => (
+                        <div key={r.name} className="mrow">
+                          <span className="mrowlabel">{r.label}</span>
+                          <span className="mrowval">PT {r.metrics.process_time}</span>
+                          <span className="mrowval">LT {r.metrics.lead_time}</span>
+                          <span className="mrowval" style={{ color: caColor(r.metrics.pct_complete_accurate) }}>{r.metrics.pct_complete_accurate}%</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : null}
+                </div>
+              );
+            })()}
 
             {tab === "export" && (
               <div>
@@ -1039,6 +1124,21 @@ function Inspector({ node, edge, teams, nodeById, teamById, onNode, onScore, onE
             <div><div className="scorebig mono">{scoreOf(node)}</div><div className="scorelbl">suitability / 10{isReusable(node) ? " \u00b7 reuse floor" : ""}</div></div>
             <span className="blband" style={{ color: bandOf(scoreOf(node)).color, borderColor: bandOf(scoreOf(node)).color }}>{bandOf(scoreOf(node)).label}</span>
           </div>
+
+          <div className="seclabel"><Timer size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />Process metrics (MBPM)</div>
+          <div className="mbpmgrid">
+            {[["resources", "Resources", "people"], ["processTime", "Process time", "min"], ["leadTime", "Lead time", "min"], ["pctCA", "% Complete & Accurate", "%"]].map(([key, label, unit]) => (
+              <label key={key} className="mfield">
+                <span className="mlbl">{label}</span>
+                <span className="minputwrap">
+                  <input type="number" className="minput mono" min="0" value={metricsOf(node)[key]}
+                    onChange={(e) => { let v = Number(e.target.value) || 0; if (v < 0) v = 0; if (key === "pctCA") v = Math.min(100, v); onNode(node.id, { metrics: { ...metricsOf(node), [key]: v } }); }} />
+                  <span className="munit">{unit}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="help">Baseline the manual process. Lead time far above process time means the step mostly waits &mdash; see the Metrics tab for the rollup.</p>
         </>
       )}
 
@@ -1173,6 +1273,21 @@ select.input { cursor:pointer; }
 .reusetitle { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600; color:${T.ink}; }
 .reusehint { font-size:11px; color:${T.sub}; }
 .reuseflag { display:inline-flex; align-items:center; gap:3px; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:${T.quick}; border:1px solid ${T.quick}; border-radius:20px; padding:1px 6px; }
+.mbpmgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:2px 0 4px; }
+.mfield { display:block; }
+.mlbl { display:block; font-size:11px; color:${T.sub}; margin-bottom:3px; line-height:1.2; min-height:26px; }
+.minputwrap { display:flex; align-items:stretch; border:1px solid ${T.line}; border-radius:7px; overflow:hidden; }
+.minputwrap:focus-within { border-color:${T.accent}; }
+.minput { flex:1; min-width:0; width:100%; box-sizing:border-box; border:none; outline:none; font-size:13px; padding:6px 8px; color:${T.ink}; background:#fff; }
+.munit { font-size:10px; color:${T.faint}; padding:0 7px; background:#F8FAFC; display:flex; align-items:center; }
+.mstat { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:2px 0 6px; }
+.mstat > div { background:#F8FAFC; border:1px solid ${T.line}; border-radius:9px; padding:11px 12px; }
+.mstatbig { font-size:23px; font-weight:750; line-height:1; color:${T.ink}; }
+.munitbig { font-size:11px; font-weight:600; color:${T.faint}; margin-left:3px; }
+.mstatlbl { font-size:10px; color:${T.faint}; text-transform:uppercase; letter-spacing:.05em; margin-top:4px; }
+.mrow { display:flex; align-items:center; gap:9px; padding:7px 0; border-bottom:1px solid #F1F5F9; }
+.mrowlabel { flex:1; min-width:0; font-size:12.5px; color:${T.ink}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mrowval { font-family:ui-monospace,monospace; font-size:10.5px; color:${T.sub}; }
 .reusechecks { margin:-6px 0 10px; padding:10px 11px; border:1px solid ${T.line}; border-top:none; border-radius:0 0 9px 9px; background:#F8FAFC; }
 .reusecheck { display:flex; align-items:flex-start; gap:8px; font-size:12px; color:${T.ink}; margin-bottom:8px; cursor:pointer; line-height:1.35; }
 .reusecheck input { margin-top:1px; accent-color:${T.quick}; width:15px; height:15px; flex-shrink:0; }
