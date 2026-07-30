@@ -1,0 +1,218 @@
+process: rhel_host_build_automated
+generated_by: ansible-automation-discovery-canvas
+teams: [servicedesk, platform, linux, security, network, servicemgmt, platform_automation]
+target_systems: [cmdb, dns, ipam, itsm, kvm, monitoring, rhel, satellite]
+baseline:            # metrics-based process mapping (current state)
+  total_process_time: 55
+  total_lead_time: 193
+  activity_ratio_pct: 28.5
+  rolled_complete_accurate_pct: 66.6
+  total_resources: 10
+roles:
+  - name: update_cmdb
+    label: "Update CMDB"
+    owner_team: platform_automation
+    priority_score: 9.4
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 5, complexity: 1 }
+    metrics: { resources: 0, process_time: 3, lead_time: 7, pct_complete_accurate: 99 }
+    target_systems: [cmdb]
+    inputs: [ci_details]
+    depends_on: [run_vulnerability_scan]
+    handoff: true
+  - name: close_ticket_handover_docs
+    label: "Close ticket & handover docs"
+    owner_team: platform_automation
+    priority_score: 8.3
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 4, complexity: 1 }
+    metrics: { resources: 1, process_time: 3, lead_time: 5, pct_complete_accurate: 98 }
+    target_systems: [itsm]
+    inputs: [handover_notes]
+    depends_on: [update_cmdb]
+    handoff: false
+  - name: apply_stig_hardening_selinux_policy
+    label: "Apply STIG hardening & SELinux policy"
+    owner_team: platform_automation
+    priority_score: 8.2
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 5, error_proneness: 2, complexity: 2 }
+    metrics: { resources: 1, process_time: 3, lead_time: 4, pct_complete_accurate: 99 }
+    target_systems: [rhel]
+    inputs: [stig_profile]
+    depends_on: [assign_ip_dns_record]
+    handoff: false
+    consumes:
+      - from: assign_ip_dns_record
+        artifact: ip_address
+  - name: register_with_satellite_attach_content_view
+    label: "Register with Satellite & attach content view"
+    owner_team: platform_automation
+    priority_score: 8.1
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 1, process_time: 3, lead_time: 5, pct_complete_accurate: 99 }
+    target_systems: [rhel, satellite]
+    inputs: [content_view, activation_key]
+    depends_on: [provision_vm_from_template]
+    handoff: false
+    consumes:
+      - from: provision_vm_from_template
+        artifact: vm_id
+  - name: assign_ip_dns_record
+    label: "Assign IP & DNS record"
+    owner_team: platform_automation
+    priority_score: 8.1
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 1, process_time: 3, lead_time: 7, pct_complete_accurate: 99 }
+    target_systems: [dns, ipam]
+    inputs: [hostname, vlan]
+    depends_on: [register_with_satellite_attach_content_view]
+    handoff: false
+  - name: install_monitoring_agent
+    label: "Install monitoring agent"
+    owner_team: platform_automation
+    priority_score: 8.1
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 1, process_time: 2, lead_time: 2, pct_complete_accurate: 99 }
+    target_systems: [monitoring]
+    inputs: [agent_version]
+    depends_on: [configure_firewalld_zones]
+    handoff: true
+  - name: raise_build_request
+    label: "Raise build request"
+    owner_team: platform_automation
+    priority_score: 8
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 4, complexity: 2 }
+    metrics: { resources: 1, process_time: 4, lead_time: 14, pct_complete_accurate: 99 }
+    target_systems: [itsm]
+    inputs: [hostname, environment, size]
+    depends_on: []
+    handoff: false
+  - name: provision_vm_from_template
+    label: "Provision VM from template"
+    owner_team: platform_automation
+    priority_score: 7.8
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 8, lead_time: 18, pct_complete_accurate: 99 }
+    target_systems: [kvm]
+    inputs: [cpu, ram, disk, template]
+    depends_on: [change_approval_cab]
+    handoff: true
+  - name: configure_firewalld_zones
+    label: "Configure firewalld zones"
+    owner_team: network
+    priority_score: 7.4
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 4, standardisation: 3, error_proneness: 4, complexity: 2 }
+    metrics: { resources: 1, process_time: 8, lead_time: 26, pct_complete_accurate: 90 }
+    target_systems: [rhel]
+    inputs: [zones, ports]
+    depends_on: [apply_stig_hardening_selinux_policy]
+    handoff: true
+  - name: check_cluster_capacity
+    label: "Check cluster capacity"
+    owner_team: platform
+    priority_score: 7.2
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 8, lead_time: 42, pct_complete_accurate: 90 }
+    target_systems: [kvm]
+    inputs: [cluster, datastore]
+    depends_on: [raise_build_request]
+    handoff: true
+  - name: run_vulnerability_scan
+    label: "Run vulnerability scan"
+    owner_team: security
+    priority_score: 6.9
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 4, standardisation: 3, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 1, process_time: 10, lead_time: 63, pct_complete_accurate: 90 }
+    target_systems: [rhel]
+    inputs: [scan_policy]
+    depends_on: [install_monitoring_agent]
+    handoff: true
+approvals:
+  - name: change_approval_cab
+    owner_team: servicemgmt
+    depends_on: [check_cluster_capacity]
+external_dependencies:
+  - name: backup_platform
+    owner_team: platform
+    integration: api
+    consumed_by: [provision_vm_from_template]
+handoffs:
+  - from: raise_build_request
+    from_team: platform_automation
+    to: check_cluster_capacity
+    to_team: platform
+    type: sequence
+  - from: check_cluster_capacity
+    from_team: platform
+    to: change_approval_cab
+    to_team: servicemgmt
+    type: sequence
+  - from: change_approval_cab
+    from_team: servicemgmt
+    to: provision_vm_from_template
+    to_team: platform_automation
+    type: sequence
+  - from: apply_stig_hardening_selinux_policy
+    from_team: platform_automation
+    to: configure_firewalld_zones
+    to_team: network
+    type: sequence
+  - from: configure_firewalld_zones
+    from_team: network
+    to: install_monitoring_agent
+    to_team: platform_automation
+    type: sequence
+  - from: install_monitoring_agent
+    from_team: platform_automation
+    to: run_vulnerability_scan
+    to_team: security
+    type: sequence
+  - from: run_vulnerability_scan
+    from_team: security
+    to: update_cmdb
+    to_team: platform_automation
+    type: sequence
+workflow:            # -> AAP workflow job template
+  - raise_build_request
+  - check_cluster_capacity
+  - { approval: change_approval_cab }
+  - provision_vm_from_template
+  - register_with_satellite_attach_content_view
+  - assign_ip_dns_record
+  - apply_stig_hardening_selinux_policy
+  - configure_firewalld_zones
+  - install_monitoring_agent
+  - run_vulnerability_scan
+  - update_cmdb
+  - close_ticket_handover_docs

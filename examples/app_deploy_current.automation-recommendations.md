@@ -4,7 +4,7 @@ Source spec: `app_deploy_current_spec.yml` → to-be spec: `app_deploy_current.a
 
 ## Executive summary
 
-The current EC2 deployment process is entirely manual and ticket-driven: 7 roles across 4 teams, 6 of 7 crossing a team boundary as a handoff, and 1,290 minutes of lead time to do 185 minutes of actual work (a 14.3% activity ratio — 86% of the process is waiting). Automating 6 of the 7 roles and partially automating the 7th cuts total lead time to 127 minutes (**90% faster end-to-end**), lifts the activity ratio to 31.5%, and raises compounded first-pass quality (rolled %C&A) from 17.1% to 84.9%. One required governance step (security review) is kept, but the request feeding it is streamlined so it spends less time waiting to be reviewed.
+The current EC2 deployment process is entirely manual and ticket-driven: 7 roles across 4 teams, 6 of 7 crossing a team boundary as a handoff, and 1,290 minutes of lead time to do 185 minutes of actual work (a 14.3% activity ratio — 86% of the process is waiting). Automating 6 of the 7 roles and partially automating the 7th cuts total lead time to 131 minutes (**90% faster end-to-end**), lifts the activity ratio to 30.5%, and raises compounded first-pass quality (rolled %C&A) from 17.1% to 85.7%. Consolidating the six automated roles under one owning team (`platform_automation`) drops cross-team handoffs from 6 to 3. One required governance step (security review) is kept, but the request feeding it is streamlined so it spends less time waiting to be reviewed.
 
 ## Methodology
 
@@ -21,12 +21,12 @@ The current EC2 deployment process is entirely manual and ticket-driven: 7 roles
 | Metric | Current | To-be | Δ | % change |
 |---|---:|---:|---:|---:|
 | Total process time (min) | 185 | 40 | −145 | −78% |
-| Total lead time (min) | 1,290 | 127 | −1,163 | −90% |
-| Activity ratio | 14.3% | 31.5% | +17.2pp | +120% |
-| Rolled %C&A | 17.1% | 84.9% | +67.8pp | +396% |
+| Total lead time (min) | 1,290 | 131 | −1,159 | −90% |
+| Activity ratio | 14.3% | 30.5% | +16.2pp | +113% |
+| Rolled %C&A | 17.1% | 85.7% | +68.6pp | +401% |
 | Total resources (headcount) | 7 | 6 | −1 | −14% |
 | Roles automated / total | 0 / 7 | 6 / 7 | +6 | — |
-| Cross-team handoffs | 6 | 1 | −5 | −83% |
+| Cross-team handoffs | 6 | 3 | −3 | −50% |
 
 ## Per-role recommendations
 
@@ -42,8 +42,8 @@ The current EC2 deployment process is entirely manual and ticket-driven: 7 roles
 
 ## Handoff & governance changes
 
-- 5 of the current 6 cross-team handoffs disappear because the steps either merge into one automated flow or trigger the next step directly (API/EDA) instead of via a ticket queue.
-- The **security review** approval is kept unchanged — it's a governance requirement, not a process inefficiency, and removing it would trade compliance for speed. The one remaining handoff (`raise_firewall_request` → `security_review`) is intentionally left as a real human wait.
+- The six fully-automated roles (`raise_infra_ticket`, `provision_ec2_instance`, `configure_firewall`, `deploy_application`, `update_cmdb`, `manual_smoke_test`) are consolidated under a single owning team, `platform_automation` — the team that builds and runs the AAP workflow end to end. Handoffs between *those* roles disappear entirely, since one team now owns the whole automated chain instead of five.
+- `raise_firewall_request` stays owned by `app` (it's only assisted-automated, still needs a human check on the rule set) and `security_review` stays with `netsec` (a real governance function, not a process inefficiency) — so 3 handoffs remain: into the firewall request, into the review, and out of the review into the now-automated `configure_firewall`. Removing the approval would trade compliance for speed, so it's kept as a genuine, intentional human wait.
 - Recommended addition (not yet reflected in the spec's `approvals` block, since the schema doesn't model pre-checks): an automated policy/compliance scan on the firewall request *before* it reaches the reviewer, so obviously-non-compliant requests are rejected in seconds rather than after a review-cycle round trip.
 
 ## Estimated cost savings
@@ -64,7 +64,7 @@ annual_hours_saved = 2.42 × 50           = 121 hours
 annual_savings     = 121 × $75           ≈ $9,060/year
 ```
 
-The labor-hour saving is real but secondary here — the bigger win is **lead time**: dropping from ~21.5 hours to ~2.1 hours per deployment means the business gets the *outcome* (a live environment) 90% faster, independent of headcount cost.
+The labor-hour saving is real but secondary here — the bigger win is **lead time**: dropping from ~21.5 hours to ~2.2 hours per deployment means the business gets the *outcome* (a live environment) 90% faster, independent of headcount cost.
 
 ## Ansible implementation roadmap
 

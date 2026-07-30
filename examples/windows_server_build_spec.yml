@@ -1,0 +1,231 @@
+process: windows_server_build
+generated_by: ansible-automation-discovery-canvas
+teams: [servicedesk, platform, identity, security, network, servicemgmt]
+target_systems: [active_directory, cmdb, dns, ipam, itsm, monitoring, vsphere, windows]
+baseline:            # metrics-based process mapping (current state)
+  total_process_time: 190
+  total_lead_time: 1095
+  activity_ratio_pct: 17.4
+  rolled_complete_accurate_pct: 17.5
+  total_resources: 10
+roles:
+  - name: update_cmdb
+    label: "Update CMDB"
+    owner_team: servicemgmt
+    priority_score: 9.4
+    band: quick_win
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 5, complexity: 1 }
+    metrics: { resources: 1, process_time: 15, lead_time: 90, pct_complete_accurate: 75 }
+    target_systems: [cmdb]
+    inputs: [ci_details]
+    depends_on: [run_vulnerability_scan]
+    handoff: true
+  - name: close_ticket_handover_docs
+    label: "Close ticket & handover docs"
+    owner_team: servicedesk
+    priority_score: 8.3
+    band: quick_win
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 4, complexity: 1 }
+    metrics: { resources: 1, process_time: 15, lead_time: 60, pct_complete_accurate: 80 }
+    target_systems: [itsm]
+    inputs: [handover_notes]
+    depends_on: [update_cmdb]
+    handoff: true
+  - name: apply_cis_hardening_baseline
+    label: "Apply CIS hardening baseline"
+    owner_team: security
+    priority_score: 8.2
+    band: quick_win
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 5, error_proneness: 2, complexity: 2 }
+    metrics: { resources: 1, process_time: 15, lead_time: 45, pct_complete_accurate: 90 }
+    target_systems: [windows]
+    inputs: [cis_profile]
+    depends_on: [join_ad_domain_ou]
+    handoff: true
+  - name: assign_ip_dns_record
+    label: "Assign IP & DNS record"
+    owner_team: network
+    priority_score: 8.1
+    band: quick_win
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 1, process_time: 15, lead_time: 90, pct_complete_accurate: 88 }
+    target_systems: [dns, ipam]
+    inputs: [hostname, vlan]
+    depends_on: [provision_vm_from_template]
+    handoff: true
+    consumes:
+      - from: provision_vm_from_template
+        artifact: vm_id
+  - name: install_monitoring_agent
+    label: "Install monitoring agent"
+    owner_team: platform
+    priority_score: 8.1
+    band: quick_win
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 1, process_time: 10, lead_time: 30, pct_complete_accurate: 88 }
+    target_systems: [monitoring]
+    inputs: [agent_version]
+    depends_on: [apply_cis_hardening_baseline]
+    handoff: true
+  - name: raise_build_request
+    label: "Raise build request"
+    owner_team: servicedesk
+    priority_score: 8
+    band: quick_win
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 4, complexity: 2 }
+    metrics: { resources: 1, process_time: 20, lead_time: 180, pct_complete_accurate: 80 }
+    target_systems: [itsm]
+    inputs: [hostname, environment, size]
+    depends_on: []
+    handoff: false
+  - name: provision_vm_from_template
+    label: "Provision VM from template"
+    owner_team: platform
+    priority_score: 7.8
+    band: quick_win
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 45, lead_time: 240, pct_complete_accurate: 85 }
+    target_systems: [vsphere]
+    inputs: [cpu, ram, disk, template]
+    depends_on: [change_approval_cab]
+    handoff: true
+  - name: check_cluster_capacity
+    label: "Check cluster capacity"
+    owner_team: platform
+    priority_score: 7.2
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 15, lead_time: 120, pct_complete_accurate: 85 }
+    target_systems: [vsphere]
+    inputs: [cluster, datastore]
+    depends_on: [raise_build_request]
+    handoff: true
+  - name: join_ad_domain_ou
+    label: "Join AD domain & OU"
+    owner_team: identity
+    priority_score: 7.2
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 20, lead_time: 60, pct_complete_accurate: 85 }
+    target_systems: [active_directory]
+    inputs: [domain, ou_path]
+    depends_on: [assign_ip_dns_record]
+    handoff: true
+    consumes:
+      - from: assign_ip_dns_record
+        artifact: ip_address
+  - name: run_vulnerability_scan
+    label: "Run vulnerability scan"
+    owner_team: security
+    priority_score: 6.9
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 4, standardisation: 3, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 1, process_time: 20, lead_time: 180, pct_complete_accurate: 85 }
+    target_systems: [windows]
+    inputs: [scan_policy]
+    depends_on: [install_monitoring_agent]
+    handoff: true
+approvals:
+  - name: change_approval_cab
+    owner_team: servicemgmt
+    depends_on: [check_cluster_capacity]
+external_dependencies:
+  - name: backup_platform
+    owner_team: platform
+    integration: manual
+    consumed_by: [provision_vm_from_template]
+handoffs:
+  - from: raise_build_request
+    from_team: servicedesk
+    to: check_cluster_capacity
+    to_team: platform
+    type: sequence
+  - from: check_cluster_capacity
+    from_team: platform
+    to: change_approval_cab
+    to_team: servicemgmt
+    type: sequence
+  - from: change_approval_cab
+    from_team: servicemgmt
+    to: provision_vm_from_template
+    to_team: platform
+    type: sequence
+  - from: provision_vm_from_template
+    from_team: platform
+    to: assign_ip_dns_record
+    to_team: network
+    type: sequence
+  - from: assign_ip_dns_record
+    from_team: network
+    to: join_ad_domain_ou
+    to_team: identity
+    type: sequence
+  - from: join_ad_domain_ou
+    from_team: identity
+    to: apply_cis_hardening_baseline
+    to_team: security
+    type: sequence
+  - from: apply_cis_hardening_baseline
+    from_team: security
+    to: install_monitoring_agent
+    to_team: platform
+    type: sequence
+  - from: install_monitoring_agent
+    from_team: platform
+    to: run_vulnerability_scan
+    to_team: security
+    type: sequence
+  - from: run_vulnerability_scan
+    from_team: security
+    to: update_cmdb
+    to_team: servicemgmt
+    type: sequence
+  - from: update_cmdb
+    from_team: servicemgmt
+    to: close_ticket_handover_docs
+    to_team: servicedesk
+    type: sequence
+  - from: provision_vm_from_template
+    from_team: platform
+    to: assign_ip_dns_record
+    to_team: network
+    type: data
+    artifact: vm_id
+  - from: assign_ip_dns_record
+    from_team: network
+    to: join_ad_domain_ou
+    to_team: identity
+    type: data
+    artifact: ip_address
+workflow:            # -> AAP workflow job template
+  - raise_build_request
+  - check_cluster_capacity
+  - { approval: change_approval_cab }
+  - provision_vm_from_template
+  - assign_ip_dns_record
+  - join_ad_domain_ou
+  - apply_cis_hardening_baseline
+  - install_monitoring_agent
+  - run_vulnerability_scan
+  - update_cmdb
+  - close_ticket_handover_docs

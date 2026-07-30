@@ -1,43 +1,43 @@
 process: app_deploy_current_automated
 generated_by: ansible-automation-discovery-canvas
-teams: [app, platform, netsec, servicemgmt]
+teams: [app, platform, netsec, servicemgmt, platform_automation]
 target_systems: [aws_ec2, cmdb, firewalls, itsm]
-baseline:            # metrics-based process mapping (to-be state)
+baseline:            # metrics-based process mapping (current state)
   total_process_time: 40
-  total_lead_time: 127
-  activity_ratio_pct: 31.5
-  rolled_complete_accurate_pct: 84.9
+  total_lead_time: 131
+  activity_ratio_pct: 30.5
+  rolled_complete_accurate_pct: 85.7
   total_resources: 6
 roles:
   - name: update_cmdb
     label: "Update CMDB"
-    owner_team: servicemgmt
+    owner_team: platform_automation
     priority_score: 8.8
     band: quick_win
     automated: true
     reusable: true
     suitability: { frequency: 4, standardisation: 4, error_proneness: 5, complexity: 1 }
-    metrics: { resources: 0, process_time: 3, lead_time: 8, pct_complete_accurate: 99 }
+    metrics: { resources: 0, process_time: 4, lead_time: 10, pct_complete_accurate: 99 }
     target_systems: [cmdb]
     inputs: [ci_details]
     depends_on: [deploy_application]
     handoff: false
   - name: provision_ec2_instance
     label: "Provision EC2 instance"
-    owner_team: platform
+    owner_team: platform_automation
     priority_score: 8.3
     band: quick_win
     automated: true
     reusable: true
     suitability: { frequency: 5, standardisation: 4, error_proneness: 4, complexity: 3 }
-    metrics: { resources: 1, process_time: 9, lead_time: 35, pct_complete_accurate: 99 }
+    metrics: { resources: 1, process_time: 9, lead_time: 38, pct_complete_accurate: 99 }
     target_systems: [aws_ec2]
     inputs: [instance_type, ami_id, subnet_id]
     depends_on: [raise_infra_ticket]
     handoff: false
   - name: deploy_application
     label: "Deploy application"
-    owner_team: app
+    owner_team: platform_automation
     priority_score: 8.3
     band: quick_win
     automated: true
@@ -50,7 +50,7 @@ roles:
     handoff: false
   - name: raise_infra_ticket
     label: "Raise infra ticket"
-    owner_team: app
+    owner_team: platform_automation
     priority_score: 8
     band: quick_win
     automated: true
@@ -62,31 +62,31 @@ roles:
     depends_on: []
     handoff: false
   - name: manual_smoke_test
-    label: "Automated smoke test"
-    owner_team: app
+    label: "Manual smoke test"
+    owner_team: platform_automation
     priority_score: 8
     band: quick_win
     automated: true
     reusable: true
     suitability: { frequency: 5, standardisation: 3, error_proneness: 4, complexity: 2 }
-    metrics: { resources: 1, process_time: 6, lead_time: 10, pct_complete_accurate: 97 }
+    metrics: { resources: 1, process_time: 5, lead_time: 5, pct_complete_accurate: 98 }
     target_systems: [aws_ec2]
     inputs: [test_checklist]
     depends_on: [update_cmdb]
     handoff: false
   - name: configure_firewall
     label: "Configure firewall"
-    owner_team: netsec
+    owner_team: platform_automation
     priority_score: 7.6
     band: quick_win
     automated: true
     reusable: true
     suitability: { frequency: 4, standardisation: 3, error_proneness: 5, complexity: 3 }
-    metrics: { resources: 1, process_time: 6, lead_time: 15, pct_complete_accurate: 99 }
+    metrics: { resources: 1, process_time: 6, lead_time: 19, pct_complete_accurate: 99 }
     target_systems: [firewalls]
     inputs: [ports, cidr]
     depends_on: [security_review]
-    handoff: false
+    handoff: true
   - name: raise_firewall_request
     label: "Raise firewall request"
     owner_team: app
@@ -105,10 +105,20 @@ approvals:
     owner_team: netsec
     depends_on: [raise_firewall_request]
 handoffs:
+  - from: provision_ec2_instance
+    from_team: platform_automation
+    to: raise_firewall_request
+    to_team: app
+    type: sequence
   - from: raise_firewall_request
     from_team: app
     to: security_review
     to_team: netsec
+    type: sequence
+  - from: security_review
+    from_team: netsec
+    to: configure_firewall
+    to_team: platform_automation
     type: sequence
 workflow:            # -> AAP workflow job template
   - raise_infra_ticket

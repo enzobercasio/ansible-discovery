@@ -46,6 +46,14 @@ two files next to the input spec:
   `target_systems`, and how the `workflow` array maps onto an AAP workflow job
   template).
 
+**Worked examples** are in [`examples/`](./examples): a simpler single-app
+deployment (`app_deploy_current`) and two larger, more realistic enterprise
+builds — `windows_server_build` (10 roles, 6 teams, CAB approval, AD/GPO,
+CIS hardening) and `rhel_host_build` (11 roles, adding Satellite registration
+and STIG/SELinux/firewalld) — each with its current-state spec, to-be spec,
+and full recommendations report already generated, so you can see the
+agent's output shape before running it on your own process.
+
 ## Tech stack
 
 React 18 + Vite. **No backend, no database, no API keys** — the app is entirely
