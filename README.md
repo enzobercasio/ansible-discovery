@@ -6,7 +6,8 @@ JSON Schema) plus a shareable diagram (PDF / SVG).
 
 It is the human, workshop-facing front end of a Spec-Driven Development (SDD)
 Ansible pipeline: brainstorm the process visually here, then let a downstream
-agent analyse the exported spec for completeness and generate content.
+agent analyse the exported spec for completeness and generate content — see
+**[Automate a process with the advisor agent](#automate-a-process-with-the-advisor-agent)** below.
 
 > Full usage guide: see **[instruction.md](./instruction.md)**.
 
@@ -23,6 +24,27 @@ agent analyse the exported spec for completeness and generate content.
 - **Handoff analysis** — every arrow that crosses a lane is counted as a cross-team handoff.
 - **Export / import** — export the AAP workflow spec (YAML), JSON Schema, and a PDF or SVG of the diagram; re-import a spec to keep editing it, plus a **UML Activity Diagram (PlantUML)** view.
 - **Worked examples** — EC2-hosted website vs S3 + CloudFront (switch in the header).
+
+## Automate a process with the advisor agent
+
+`.claude/agents/process-automation-advisor.md` is a [Claude Code
+subagent](https://docs.claude.com/en/docs/claude-code/sub-agents) — the
+"downstream agent" this app hands off to. Run Claude Code from inside this
+repo, export a process spec from the **Export** tab, then ask it to automate
+that spec (e.g. *"use the process-automation-advisor agent to automate
+`app_deploy_current.spec.yml`"*). It reads the exported YAML, applies Lean
+(waste elimination), Theory of Constraints (bottleneck), Six Sigma (quality),
+and MBPM (the baseline this app already computes) to every role, and writes
+two files next to the input spec:
+
+- **`<process>.automated.spec.yml`** — a to-be spec in the same schema, so you
+  can re-import it here (**Import**, header) and keep refining it visually.
+- **`<process>.automation-recommendations.md`** — the written case: a
+  before/after MBPM comparison, per-role automate/keep-manual decisions with
+  rationale, an illustrative cost-savings worked example, and a phased Ansible
+  rollout plan (suggested role names, likely collections/modules per
+  `target_systems`, and how the `workflow` array maps onto an AAP workflow job
+  template).
 
 ## Tech stack
 
@@ -176,6 +198,9 @@ ansible-discovery/
   .github/
     workflows/
       deploy.yml      # builds + deploys to GitHub Pages on push to main
+  .claude/
+    agents/
+      process-automation-advisor.md   # downstream agent: spec -> to-be spec + recommendations
   README.md           # this file
   instruction.md      # how to use the tool
 ```

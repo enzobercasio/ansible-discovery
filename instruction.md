@@ -86,6 +86,17 @@ no promotion.
 - **JSON Schema** (Export tab) — validate the spec in CI so every session yields a
   consistent input for the SDD-Ansible generation step.
 
+## 7. Hand off to the automation advisor agent
+
+Once you've exported a `.spec.yml`, run Claude Code from this repo and invoke
+the **process-automation-advisor** agent (`.claude/agents/process-automation-advisor.md`)
+on it — e.g. *"use the process-automation-advisor agent on
+`app_deploy_current.spec.yml`"*. It applies Lean / Theory of Constraints / Six
+Sigma / MBPM to every role and writes a to-be `*.automated.spec.yml` (re-import
+it here to keep editing visually) plus a `*.automation-recommendations.md`
+report: before/after metrics, per-role automate-or-not rationale, an
+illustrative cost-savings calculation, and a phased Ansible rollout plan.
+
 ## How the spec maps to AAP
 
 - team / lane → AAP organisation + team + RBAC

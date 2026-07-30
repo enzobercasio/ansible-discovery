@@ -1,0 +1,121 @@
+process: app_deploy_current_automated
+generated_by: ansible-automation-discovery-canvas
+teams: [app, platform, netsec, servicemgmt]
+target_systems: [aws_ec2, cmdb, firewalls, itsm]
+baseline:            # metrics-based process mapping (to-be state)
+  total_process_time: 40
+  total_lead_time: 127
+  activity_ratio_pct: 31.5
+  rolled_complete_accurate_pct: 84.9
+  total_resources: 6
+roles:
+  - name: update_cmdb
+    label: "Update CMDB"
+    owner_team: servicemgmt
+    priority_score: 8.8
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 4, standardisation: 4, error_proneness: 5, complexity: 1 }
+    metrics: { resources: 0, process_time: 3, lead_time: 8, pct_complete_accurate: 99 }
+    target_systems: [cmdb]
+    inputs: [ci_details]
+    depends_on: [deploy_application]
+    handoff: false
+  - name: provision_ec2_instance
+    label: "Provision EC2 instance"
+    owner_team: platform
+    priority_score: 8.3
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 4, complexity: 3 }
+    metrics: { resources: 1, process_time: 9, lead_time: 35, pct_complete_accurate: 99 }
+    target_systems: [aws_ec2]
+    inputs: [instance_type, ami_id, subnet_id]
+    depends_on: [raise_infra_ticket]
+    handoff: false
+  - name: deploy_application
+    label: "Deploy application"
+    owner_team: app
+    priority_score: 8.3
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 4, error_proneness: 4, complexity: 3 }
+    metrics: { resources: 1, process_time: 8, lead_time: 14, pct_complete_accurate: 99 }
+    target_systems: [aws_ec2]
+    inputs: [artifact_id]
+    depends_on: [configure_firewall]
+    handoff: false
+  - name: raise_infra_ticket
+    label: "Raise infra ticket"
+    owner_team: app
+    priority_score: 8
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 4, complexity: 2 }
+    metrics: { resources: 1, process_time: 3, lead_time: 10, pct_complete_accurate: 99 }
+    target_systems: [itsm]
+    inputs: [request_form]
+    depends_on: []
+    handoff: false
+  - name: manual_smoke_test
+    label: "Automated smoke test"
+    owner_team: app
+    priority_score: 8
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 5, standardisation: 3, error_proneness: 4, complexity: 2 }
+    metrics: { resources: 1, process_time: 6, lead_time: 10, pct_complete_accurate: 97 }
+    target_systems: [aws_ec2]
+    inputs: [test_checklist]
+    depends_on: [update_cmdb]
+    handoff: false
+  - name: configure_firewall
+    label: "Configure firewall"
+    owner_team: netsec
+    priority_score: 7.6
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 4, standardisation: 3, error_proneness: 5, complexity: 3 }
+    metrics: { resources: 1, process_time: 6, lead_time: 15, pct_complete_accurate: 99 }
+    target_systems: [firewalls]
+    inputs: [ports, cidr]
+    depends_on: [security_review]
+    handoff: false
+  - name: raise_firewall_request
+    label: "Raise firewall request"
+    owner_team: app
+    priority_score: 7.4
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 4, standardisation: 3, error_proneness: 4, complexity: 2 }
+    metrics: { resources: 1, process_time: 5, lead_time: 35, pct_complete_accurate: 92 }
+    target_systems: [itsm]
+    inputs: [ports, cidr]
+    depends_on: [provision_ec2_instance]
+    handoff: true
+approvals:
+  - name: security_review
+    owner_team: netsec
+    depends_on: [raise_firewall_request]
+handoffs:
+  - from: raise_firewall_request
+    from_team: app
+    to: security_review
+    to_team: netsec
+    type: sequence
+workflow:            # -> AAP workflow job template
+  - raise_infra_ticket
+  - provision_ec2_instance
+  - raise_firewall_request
+  - { approval: security_review }
+  - configure_firewall
+  - deploy_application
+  - update_cmdb
+  - manual_smoke_test
