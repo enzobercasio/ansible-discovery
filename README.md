@@ -46,13 +46,18 @@ two files next to the input spec:
   `target_systems`, and how the `workflow` array maps onto an AAP workflow job
   template).
 
-**Worked examples** are in [`examples/`](./examples): a simpler single-app
-deployment (`app_deploy_current`) and two larger, more realistic enterprise
-builds — `windows_server_build` (10 roles, 6 teams, CAB approval, AD/GPO,
-CIS hardening) and `rhel_host_build` (11 roles, adding Satellite registration
-and STIG/SELinux/firewalld) — each with its current-state spec, to-be spec,
-and full recommendations report already generated, so you can see the
-agent's output shape before running it on your own process.
+**Worked examples** are in [`examples/`](./examples) — each one already run
+through the agent, so you can see the output shape before trying it on your
+own process:
+
+| Example | Current spec | To-be spec | Recommendations | Lead time |
+|---|---|---|---|---:|
+| App deployment (7 roles, 4 teams) | [app_deploy_current_spec.yml](./examples/app_deploy_current_spec.yml) | [app_deploy_current.automated.spec.yml](./examples/app_deploy_current.automated.spec.yml) | [app_deploy_current.automation-recommendations.md](./examples/app_deploy_current.automation-recommendations.md) | 1,290 → 131 min |
+| Windows server build (10 roles, 6 teams, CAB approval, AD/GPO, CIS hardening) | [windows_server_build_spec.yml](./examples/windows_server_build_spec.yml) | [windows_server_build.automated.spec.yml](./examples/windows_server_build.automated.spec.yml) | [windows_server_build.automation-recommendations.md](./examples/windows_server_build.automation-recommendations.md) | 1,095 → 184 min |
+| RHEL host build (11 roles, 6 teams, Satellite registration, STIG/SELinux/firewalld) | [rhel_host_build_spec.yml](./examples/rhel_host_build_spec.yml) | [rhel_host_build.automated.spec.yml](./examples/rhel_host_build.automated.spec.yml) | [rhel_host_build.automation-recommendations.md](./examples/rhel_host_build.automation-recommendations.md) | 1,150 → 193 min |
+
+Every `.automated.spec.yml` above is a plain spec in this app's own schema —
+drop it into **Import** (header) to open it on the canvas.
 
 ## Tech stack
 
