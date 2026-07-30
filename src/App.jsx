@@ -877,7 +877,7 @@ export default function App() {
   const handoffRows = useMemo(() => spec.handoffs, [spec]);
 
   return (
-    <div style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", color: T.ink, background: "#F8FAFC", minHeight: "100%" }}>
+    <div style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", color: T.ink, background: "#F8FAFC", height: "100%", display: "flex", flexDirection: "column" }}>
       <style>{css}</style>
 
       <header className="hd">
@@ -1345,7 +1345,7 @@ function Empty({ text }) { return <div className="empty">{text}</div>; }
 /* ------------------------------------------------------------------ */
 const css = `
 .mono { font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace; }
-.hd { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:12px 18px; background:#fff; border-bottom:1px solid ${T.line}; }
+.hd { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:12px 18px; background:#fff; border-bottom:1px solid ${T.line}; flex-shrink:0; }
 .logo { width:34px; height:34px; border-radius:9px; background:${T.accentSoft}; color:${T.accent}; display:flex; align-items:center; justify-content:center; }
 .title { font-size:15px; font-weight:650; letter-spacing:-.01em; }
 .tag { font-size:12px; color:${T.sub}; }
@@ -1366,7 +1366,7 @@ const css = `
 .emptycanvas { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
 .emptycanvas-inner { background:#fff; border:1px solid ${T.line}; border-radius:10px; padding:14px 18px; font-size:13px; color:${T.sub}; box-shadow:0 4px 14px rgba(15,23,42,.08); max-width:360px; text-align:center; line-height:1.5; }
 
-.main { display:flex; align-items:stretch; height:660px; }
+.main { display:flex; align-items:stretch; flex:1; min-height:0; }
 .pal { width:236px; flex-shrink:0; padding:14px; background:#fff; border-right:1px solid ${T.line}; display:flex; flex-direction:column; gap:7px; overflow:auto; }
 .seclabel { font-size:11px; font-weight:650; text-transform:uppercase; letter-spacing:.07em; color:${T.faint}; margin:12px 0 3px; }
 .teamrow { display:flex; align-items:center; gap:7px; }
@@ -1498,7 +1498,7 @@ select.input { cursor:pointer; }
 .empty { font-size:12.5px; color:${T.faint}; text-align:center; padding:26px 12px; line-height:1.5; }
 
 @media (max-width: 940px) {
-  .main { flex-direction:column; height:auto; }
+  .main { flex-direction:column; flex:none; height:auto; }
   .pal { width:auto; border-right:none; border-bottom:1px solid ${T.line}; }
   .cv { height:460px; }
   .panel { width:auto; border-left:none; border-top:1px solid ${T.line}; }
