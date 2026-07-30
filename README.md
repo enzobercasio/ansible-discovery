@@ -10,6 +10,8 @@ agent analyse the exported spec for completeness and generate content.
 
 > Full usage guide: see **[instruction.md](./instruction.md)**.
 
+> **Live demo:** https://enzobercasio.github.io/ansible-discovery/
+
 ## What it does
 
 - **Swimlanes** — one lane per team; drag a step between lanes to change who owns it.
@@ -48,13 +50,50 @@ npm run preview    # serve the production build locally to sanity-check it
 
 Everything the browser needs ends up in `dist/`. Deployment is just "serve `dist/`".
 
+## Deploy to GitHub Pages
+
+**Live at https://enzobercasio.github.io/ansible-discovery/.** This is the
+cheapest option — free static hosting, no cloud account required — and is set
+up to redeploy automatically.
+
+`.github/workflows/deploy.yml` builds the app and publishes `dist/` via
+GitHub Pages on every push to `main`:
+
+```yaml
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+# ... npm ci && npm run build, then actions/upload-pages-artifact + actions/deploy-pages
+```
+
+To set this up on a fork or a new repo:
+
+```bash
+# 1. Point Pages at the Actions workflow instead of a branch
+gh api repos/<owner>/<repo>/pages -X POST -f build_type=workflow
+
+# 2. Push to main — the workflow builds and deploys automatically
+git push origin main
+```
+
+`vite.config.js` sets the build `base` to `/<repo-name>/` only when
+`GITHUB_ACTIONS` is set (i.e. only in CI), so `npm run dev` / `npm run build`
+locally are unaffected:
+
+```js
+base: process.env.GITHUB_ACTIONS ? '/ansible-discovery/' : '/',
+```
+
+If you fork this under a different repo name, update that path to match.
+
 ## Deploy to AWS
 
 Because the app is a static single-page app, you only need static hosting — there
 is no server process, port, or secret to manage. The two common patterns below
 happen to mirror the two examples the tool itself ships with.
 
-### Option A — S3 + CloudFront (recommended)
+### Option A — S3 + CloudFront
 
 Cheapest, fastest, globally cached. Keep the bucket **private** and serve it
 through CloudFront with Origin Access Control (OAC).
@@ -133,6 +172,9 @@ ansible-discovery/
     main.jsx          # React entry point
     App.jsx           # the entire tool (single component)
     index.css         # minimal reset so the canvas fills the viewport
+  .github/
+    workflows/
+      deploy.yml      # builds + deploys to GitHub Pages on push to main
   README.md           # this file
   instruction.md      # how to use the tool
 ```
