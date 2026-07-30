@@ -78,6 +78,7 @@ no promotion.
 - **YAML** (Export tab) — the AAP workflow spec: roles with owners, `depends_on`,
   `consumes`, `reusable`; plus `approvals`, `external_dependencies`, `handoffs`,
   and a topologically ordered `workflow`.
+- **UML activity (PlantUML)** (Export tab) — a UML Activity Diagram view: swimlanes per team, actions per step, scores and MBPM metrics as notes. Render at plantuml.com or any PlantUML tool.
 - **JSON Schema** (Export tab) — validate the spec in CI so every session yields a
   consistent input for the SDD-Ansible generation step.
 

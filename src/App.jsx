@@ -202,6 +202,74 @@ function toYaml(spec) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Export: UML Activity Diagram (PlantUML)                            */
+/*  swimlanes = teams, actions = steps, object flow = data artifacts,  */
+/*  scores + MBPM metrics carried as notes.                            */
+/* ------------------------------------------------------------------ */
+const pesc = (s) => String(s || "").replace(/[;\n]+/g, " ").trim();
+function buildPlantUML(processName, nodes, edges, teams) {
+  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+  const teamName = Object.fromEntries(teams.map((t) => [t.id, t.name]));
+  const flow = nodes.filter((n) => n.type !== "external");
+  const flowIds = new Set(flow.map((n) => n.id));
+  const outOf = (id) => edges.filter((e) => e.source === id && flowIds.has(e.target));
+  const indeg = {}; flow.forEach((n) => (indeg[n.id] = 0));
+  flow.forEach((n) => outOf(n.id).forEach((e) => indeg[e.target]++));
+  const xOf = (id) => byId[id].x || 0;
+  let q = flow.filter((n) => indeg[n.id] === 0).map((n) => n.id).sort((a, b) => xOf(a) - xOf(b));
+  const order = [], used = new Set();
+  while (q.length) {
+    const id = q.shift(); if (used.has(id)) continue; used.add(id); order.push(id);
+    outOf(id).forEach((e) => indeg[e.target]--);
+    const ready = flow.filter((n) => !used.has(n.id) && indeg[n.id] === 0 && !q.includes(n.id)).map((n) => n.id).sort((a, b) => xOf(a) - xOf(b));
+    q = q.concat(ready);
+  }
+  flow.forEach((n) => { if (!used.has(n.id)) order.push(n.id); });
+
+  const dataInto = {};
+  edges.forEach((e) => { if (e.type === "data") { (dataInto[e.target] = dataInto[e.target] || []).push({ from: byId[e.source]?.label, artifact: e.artifact }); } });
+  const extOf = {};
+  edges.forEach((e) => {
+    const s = byId[e.source], t = byId[e.target];
+    if (t && t.type === "external") (extOf[e.source] = extOf[e.source] || []).push(t);
+    if (s && s.type === "external") (extOf[e.target] = extOf[e.target] || []).push(s);
+  });
+
+  let o = "@startuml\n";
+  o += `title ${pesc(processName)} — activity\n`;
+  o += "skinparam swimlaneWidth 210\n";
+  o += "skinparam noteBackgroundColor #F8FAFC\nskinparam noteBorderColor #CBD5E1\n\n";
+  let lane = null, started = false;
+  const setLane = (teamId) => { const nm = teamName[teamId]; if (nm && nm !== lane) { o += `|${pesc(nm)}|\n`; lane = nm; } };
+  const ensureStart = () => { if (!started) { o += "start\n"; started = true; } };
+
+  order.forEach((id) => {
+    const n = byId[id];
+    setLane(n.team);
+    if (n.type === "start") { o += "start\n"; started = true; if (n.label) o += `#E0F2FE:${pesc(n.label)};\n`; }
+    else if (n.type === "end") { ensureStart(); o += "stop\n"; }
+    else if (n.type === "approval") { ensureStart(); o += `#EDE9FE:${pesc(n.label)};\nnote right: approval gate\n`; }
+    else if (n.type === "gateway") { ensureStart(); o += `#F1F5F9:${pesc(n.label)};\nnote right: decision\n`; }
+    else {
+      ensureStart();
+      const reuse = isReusable(n);
+      o += `${reuse ? "#CCFBF1" : "#FFFFFF"}:${pesc(n.label)};\n`;
+      const sc = scoreOf(n), m = metricsOf(n);
+      o += "note right\n";
+      o += `  score ${sc} · ${bandOf(sc).label}${reuse ? " · reusable" : ""}\n`;
+      o += `  PT ${m.processTime} · LT ${m.leadTime} · %C&A ${m.pctCA}\n`;
+      if ((n.systems || []).length) o += `  systems: ${pesc((n.systems || []).join(", "))}\n`;
+      (dataInto[id] || []).forEach((d) => { if (d.artifact) o += `  «object» ${pesc(d.artifact)} from ${pesc(d.from)}\n`; });
+      (extOf[id] || []).forEach((ex) => { o += `  → ${pesc(ex.label)} (${pesc(ex.integration || "api")})\n`; });
+      o += "end note\n";
+    }
+  });
+  if (!order.some((id) => byId[id].type === "end")) { ensureStart(); o += "stop\n"; }
+  o += "@enduml\n";
+  return o;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Export: render the whole diagram to a standalone SVG              */
 /*  (independent of scroll / live DOM, so it always captures it all)  */
 /* ------------------------------------------------------------------ */
@@ -655,6 +723,7 @@ export default function App() {
   const teamById = useMemo(() => Object.fromEntries(teams.map((t) => [t.id, t])), [teams]);
   const spec = useMemo(() => buildSpec(processName, nodes, edges, teams), [processName, nodes, edges, teams]);
   const yaml = useMemo(() => toYaml(spec), [spec]);
+  const puml = useMemo(() => buildPlantUML(processName, nodes, edges, teams), [processName, nodes, edges, teams]);
   const worldH = Math.max(teams.length * LANE_H, 420);
   const contentW = useMemo(() => Math.max(WORLD_W, nodes.reduce((m, n) => Math.max(m, n.x + NODE_W), 0) + 80), [nodes]);
 
@@ -1096,6 +1165,16 @@ export default function App() {
                 </div>
                 <p className="help">Validate the spec against this schema in CI so every discovery session yields a consistent SDD-Ansible input.</p>
                 <pre className="code mono" style={{ maxHeight: 170 }}>{JSON.stringify(JSON_SCHEMA, null, 2)}</pre>
+
+                <div className="exphead" style={{ marginTop: 16 }}>
+                  <span className="seclabel" style={{ margin: 0 }}>UML activity (PlantUML)</span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button className="btn ghost sm" onClick={() => copy(puml, "puml")}>{copied === "puml" ? <Check size={13} /> : <Copy size={13} />} Copy</button>
+                    <button className="btn ghost sm" onClick={() => download(puml, `${slug(processName)}.activity.puml`, "text/plain")}><Download size={13} /> .puml</button>
+                  </div>
+                </div>
+                <p className="help">A UML Activity Diagram view &mdash; swimlanes per team, actions per step, scores &amp; MBPM metrics as notes. Paste into plantuml.com or any PlantUML renderer.</p>
+                <pre className="code mono" style={{ maxHeight: 170 }}>{puml}</pre>
               </div>
             )}
           </div>

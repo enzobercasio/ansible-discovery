@@ -18,7 +18,7 @@ agent analyse the exported spec for completeness and generate content.
 - **Suitability scoring** — frequency, standardisation, error-proneness, effort, banded into Quick win / Plan / Defer, with a *verified* reusability promotion.
 - **Process metrics (MBPM)** — per-step process/lead time, %C&A and resources, rolled up into activity ratio and rolled %C&A (Metrics-Based Process Mapping baseline).
 - **Handoff analysis** — every arrow that crosses a lane is counted as a cross-team handoff.
-- **Export / import** — export the AAP workflow spec (YAML), JSON Schema, and a PDF or SVG of the diagram; re-import a spec to keep editing it.
+- **Export / import** — export the AAP workflow spec (YAML), JSON Schema, and a PDF or SVG of the diagram; re-import a spec to keep editing it, plus a **UML Activity Diagram (PlantUML)** view.
 - **Worked examples** — EC2-hosted website vs S3 + CloudFront (switch in the header).
 
 ## Tech stack
