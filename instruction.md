@@ -49,7 +49,11 @@ team and enters another.
 
 ## 4. Score suitability (Step nodes)
 
-Select a Step and set the four sliders (1–5):
+Select a Step and mark its **Current status** — Manual or Automated — so the
+canvas, Backlog, and every export show what's already automated versus what
+still needs work. New steps default to Manual.
+
+Then set the four sliders (1–5):
 
 - **Frequency** — how often it runs
 - **Standardisation** — how rule-based it is

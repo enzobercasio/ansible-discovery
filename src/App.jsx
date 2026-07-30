@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useMemo, useEffect } from "react"
 import {
   Plus, GitBranch, Play, Square, Trash2, Copy, Download, Check, Info,
   RotateCcw, ListOrdered, FileCode, Gauge, Server, ArrowRight,
-  ShieldCheck, ExternalLink, Users, ArrowLeftRight, Eraser, FileDown, Repeat, Upload, Timer,
+  ShieldCheck, ExternalLink, Users, ArrowLeftRight, Eraser, FileDown, Repeat, Upload, Timer, Bot, User,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -34,6 +34,7 @@ const splitList = (v) => v.split(",").map((x) => x.trim()).filter(Boolean);
 const truncate = (s, n) => (s.length > n ? s.slice(0, n - 1) + "\u2026" : s);
 
 const isReusable = (n) => !!(n.reuseClaim && n.reuseParam && n.reuseOwner);   // verified, not just claimed
+const isAutomated = (n) => !!n.automated;   // current-state flag: manual (default) vs already automated
 function scoreOf(n) {
   const s = n.scores || {};
   const f = s.frequency ?? 3, st = s.standardisation ?? 3, e = s.errorProneness ?? 3, c = s.complexity ?? 3;
@@ -96,7 +97,7 @@ function buildSpec(processName, nodes, edges, teams) {
     const sc = scoreOf(t), s = t.scores || {}, mm = metricsOf(t);
     return {
       name: slug(t.label), label: t.label, owner_team: t.team,
-      priority_score: sc, band: bandOf(sc).key, reusable: isReusable(t),
+      priority_score: sc, band: bandOf(sc).key, automated: isAutomated(t), reusable: isReusable(t),
       suitability: { frequency: s.frequency ?? 3, standardisation: s.standardisation ?? 3, error_proneness: s.errorProneness ?? 3, complexity: s.complexity ?? 3 },
       metrics: { resources: mm.resources, process_time: mm.processTime, lead_time: mm.leadTime, pct_complete_accurate: mm.pctCA },
       target_systems: (t.systems || []).slice().sort(), inputs: (t.inputs || []).slice(),
@@ -179,7 +180,7 @@ function toYaml(spec) {
   if (!spec.roles.length) o += "  []\n";
   spec.roles.forEach((r) => {
     o += `  - name: ${r.name}\n    label: ${JSON.stringify(r.label)}\n    owner_team: ${r.owner_team}\n`;
-    o += `    priority_score: ${r.priority_score}\n    band: ${r.band}\n    reusable: ${r.reusable}\n`;
+    o += `    priority_score: ${r.priority_score}\n    band: ${r.band}\n    automated: ${r.automated}\n    reusable: ${r.reusable}\n`;
     o += `    suitability: { frequency: ${r.suitability.frequency}, standardisation: ${r.suitability.standardisation}, error_proneness: ${r.suitability.error_proneness}, complexity: ${r.suitability.complexity} }\n`;
     o += `    metrics: { resources: ${r.metrics.resources}, process_time: ${r.metrics.process_time}, lead_time: ${r.metrics.lead_time}, pct_complete_accurate: ${r.metrics.pct_complete_accurate} }\n`;
     o += `    target_systems: ${A(r.target_systems)}\n    inputs: ${A(r.inputs)}\n`;
@@ -256,6 +257,7 @@ function buildPlantUML(processName, nodes, edges, teams) {
       o += `${reuse ? "#CCFBF1" : "#FFFFFF"}:${pesc(n.label)};\n`;
       const sc = scoreOf(n), m = metricsOf(n);
       o += "note right\n";
+      o += `  status: ${isAutomated(n) ? "Automated" : "Manual"}\n`;
       o += `  score ${sc} · ${bandOf(sc).label}${reuse ? " · reusable" : ""}\n`;
       o += `  PT ${m.processTime} · LT ${m.leadTime} · %C&A ${m.pctCA}\n`;
       if ((n.systems || []).length) o += `  systems: ${pesc((n.systems || []).join(", "))}\n`;
@@ -341,7 +343,10 @@ function buildExportSVG(processName, nodes, edges, teams, worldH) {
     if (isTask) {
       const sc = scoreOf(n), band = bandOf(sc);
       s += `<rect x="${NODE_W - 42}" y="8" width="34" height="18" rx="9" fill="${band.color}"/><text x="${NODE_W - 25}" y="21" text-anchor="middle" font-size="11" font-weight="700" font-family="ui-monospace,monospace" fill="#fff">${sc}</text>`;
-      if (isReusable(n)) s += `<rect x="${NODE_W - 108}" y="8" width="62" height="18" rx="9" fill="#fff" stroke="${T.quick}"/><text x="${NODE_W - 77}" y="21" text-anchor="middle" font-size="9.5" font-weight="700" fill="${T.quick}">REUSABLE</text>`;
+      let bx = NODE_W - 46;
+      if (isReusable(n)) { s += `<rect x="${bx - 62}" y="8" width="62" height="18" rx="9" fill="#fff" stroke="${T.quick}"/><text x="${bx - 31}" y="21" text-anchor="middle" font-size="9.5" font-weight="700" fill="${T.quick}">REUSABLE</text>`; bx -= 66; }
+      const stColor = isAutomated(n) ? T.quick : T.plan, stText = isAutomated(n) ? "AUTO" : "MANUAL", stW = isAutomated(n) ? 46 : 58;
+      s += `<rect x="${bx - stW}" y="8" width="${stW}" height="18" rx="9" fill="#fff" stroke="${stColor}"/><text x="${bx - stW / 2}" y="21" text-anchor="middle" font-size="9.5" font-weight="700" fill="${stColor}">${stText}</text>`;
     }
     s += `<text x="15" y="42" font-size="13.5" font-weight="650" fill="${T.ink}">${xesc(truncate(n.label || "untitled", 24))}</text>`;
     const sub = isTask ? slug(n.label) : n.type === "external" ? (n.integration || "manual") : n.type === "gateway" ? `routes ${edges.filter((e) => e.source === n.id).length} branch(es)` : "";
@@ -482,7 +487,8 @@ function specToGraph(spec) {
       x: xOfName(rec.name), y: Y(laneIdx(rec.owner_team)),
       systems: type === "task" ? (rec.target_systems || []).slice() : [],
       inputs: type === "task" ? (rec.inputs || []).slice() : [],
-      integration: "api", reuseClaim: reusable, reuseParam: reusable, reuseOwner: reusable,
+      integration: "api", automated: type === "task" ? !!rec.automated : undefined,
+      reuseClaim: reusable, reuseParam: reusable, reuseOwner: reusable,
       metrics: type === "task" && rec.metrics ? { resources: rec.metrics.resources ?? 1, processTime: rec.metrics.process_time ?? 0, leadTime: rec.metrics.lead_time ?? 0, pctCA: rec.metrics.pct_complete_accurate ?? 100 } : undefined,
       scores: type === "task" ? { frequency: su.frequency ?? 3, standardisation: su.standardisation ?? 3, errorProneness: su.error_proneness ?? 3, complexity: su.complexity ?? 3 } : {},
     });
@@ -542,7 +548,8 @@ const JSON_SCHEMA = {
       type: "object", required: ["name", "owner_team", "priority_score", "band"],
       properties: {
         name: { type: "string" }, owner_team: { type: "string" },
-        priority_score: { type: "number" }, band: { enum: ["quick_win", "plan", "defer"] }, reusable: { type: "boolean" },
+        priority_score: { type: "number" }, band: { enum: ["quick_win", "plan", "defer"] },
+        automated: { type: "boolean" }, reusable: { type: "boolean" },
           suitability: { type: "object", properties: { frequency: { type: "number" }, standardisation: { type: "number" }, error_proneness: { type: "number" }, complexity: { type: "number" } } },
           metrics: { type: "object", properties: { resources: { type: "number" }, process_time: { type: "number" }, lead_time: { type: "number" }, pct_complete_accurate: { type: "number" } } },
         depends_on: { type: "array", items: { type: "string" } },
@@ -567,7 +574,7 @@ function flow(teams, seq, externals) {
   const X = (i) => 20 + i * 250;
   const nodes = seq.map((st, i) => {
     const n = { id: `s_${i}`, type: st.type, team: st.team, label: st.label, x: X(i), y: Y(laneIdx(st.team)), systems: st.systems || [], inputs: st.inputs || [], integration: "api", scores: st.type === "task" ? (st.scores || { frequency: 5, standardisation: 5, errorProneness: 2, complexity: 2 }) : {} };
-    if (st.type === "task") { n.metrics = st.metrics || { resources: 1, processTime: 5, leadTime: 10, pctCA: 98 }; if (st.reusable) { n.reuseClaim = true; n.reuseParam = true; n.reuseOwner = true; } }
+    if (st.type === "task") { n.metrics = st.metrics || { resources: 1, processTime: 5, leadTime: 10, pctCA: 98 }; n.automated = st.automated ?? true; if (st.reusable) { n.reuseClaim = true; n.reuseParam = true; n.reuseOwner = true; } }
     return n;
   });
   const edges = [];
@@ -642,11 +649,11 @@ function seed(variant = "current") {
     const nodes = [
       { id: "a_start", type: "start", team: "app", label: "Deployment requested", x: 20, y: Y(0), systems: [], inputs: [], scores: {} },
       { id: "a_prov", type: "task", team: "platform", label: "Provision environment", x: 280, y: Y(1),
-        systems: ["aws_ec2"], inputs: ["env_name", "instance_type"], reuseClaim: true, reuseParam: true, reuseOwner: true,
+        systems: ["aws_ec2"], inputs: ["env_name", "instance_type"], automated: true, reuseClaim: true, reuseParam: true, reuseOwner: true,
         metrics: { resources: 1, processTime: 10, leadTime: 20, pctCA: 99 }, scores: { frequency: 5, standardisation: 5, errorProneness: 2, complexity: 2 } },
       { id: "a_appr", type: "approval", team: "netsec", label: "Security approval", x: 540, y: Y(2), systems: [], inputs: [], scores: {} },
       { id: "a_deploy", type: "task", team: "app", label: "Deploy application", x: 800, y: Y(0),
-        systems: ["aws_ec2"], inputs: ["artifact_id"], reuseClaim: true, reuseParam: true, reuseOwner: true,
+        systems: ["aws_ec2"], inputs: ["artifact_id"], automated: true, reuseClaim: true, reuseParam: true, reuseOwner: true,
         metrics: { resources: 1, processTime: 6, leadTime: 12, pctCA: 98 }, scores: { frequency: 5, standardisation: 5, errorProneness: 2, complexity: 2 } },
       { id: "a_cmdb", type: "external", team: "servicemgmt", label: "CMDB", x: 1060, y: Y(3), integration: "eda_event", systems: [], inputs: [], scores: {} },
       { id: "a_end", type: "end", team: "app", label: "Live", x: 1080, y: Y(0), systems: [], inputs: [], scores: {} },
@@ -753,7 +760,8 @@ export default function App() {
       id: uid("n"), type, team: teams[0].id,
       label: type === "task" ? "New step" : type === "approval" ? "Approval" : type === "gateway" ? "Decision?" : type === "external" ? "External system" : type === "start" ? "Trigger" : "Done",
       x: 80, y: clampToLane(PAD + 22, 0),
-      systems: [], inputs: [], integration: "api", reuseClaim: false, reuseParam: false, reuseOwner: false,
+      systems: [], inputs: [], integration: "api", automated: type === "task" ? false : undefined,
+      reuseClaim: false, reuseParam: false, reuseOwner: false,
       metrics: type === "task" ? { resources: 1, processTime: 0, leadTime: 0, pctCA: 100 } : undefined,
       scores: type === "task" ? { frequency: 3, standardisation: 3, errorProneness: 3, complexity: 3 } : {},
     };
@@ -1021,6 +1029,9 @@ export default function App() {
                       <div className="ntop">
                         <span className="kind" style={{ color: M.color }}><M.icon size={12} /> {M.kind}</span>
                         <span style={{ display: "flex", alignItems: "center", gap: 5, marginLeft: "auto" }}>
+                          {isTask ? (isAutomated(n)
+                            ? <Bot size={12} color={T.quick} title="Automated" />
+                            : <User size={12} color={T.plan} title="Manual" />) : null}
                           {isTask && isReusable(n) ? <Repeat size={12} color={T.quick} /> : null}
                           {isTask ? <span className="scorechip" style={{ background: band.color }}>{sc}</span> : null}
                         </span>
@@ -1068,6 +1079,9 @@ export default function App() {
                         <div className="blbar"><span style={{ width: `${r.priority_score * 10}%`, background: band.color }} /></div>
                         <div className="blmeta">
                           <span className="teamtag" style={{ color: tm?.color, borderColor: tm?.color }}>{tm?.name || r.owner_team}</span>
+                          <span className={r.automated ? "autoflag" : "manualflag"}>
+                            {r.automated ? <><Bot size={10} /> automated</> : <><User size={10} /> manual</>}
+                          </span>
                           {r.reusable && <span className="reuseflag"><Repeat size={10} /> reusable</span>}
                           {r.handoff && <span className="hoflag">handoff</span>}
                           <span className="mono" style={{ color: T.faint }}>{r.priority_score}</span>
@@ -1240,6 +1254,14 @@ function Inspector({ node, edge, teams, nodeById, teamById, onNode, onScore, onE
       {isTask && (
         <>
           <div className="slugline">role: <span className="mono">{slug(node.label)}</span></div>
+          <Field label="Current status">
+            <div className="seg">
+              <button className={`segbtn ${!node.automated ? "on" : ""}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
+                onClick={() => onNode(node.id, { automated: false })}><User size={12} /> Manual</button>
+              <button className={`segbtn ${node.automated ? "on" : ""}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
+                onClick={() => onNode(node.id, { automated: true })}><Bot size={12} /> Automated</button>
+            </div>
+          </Field>
           <Field label="Target systems (comma-separated)">
             <input className="input mono" value={(node.systems || []).join(", ")} placeholder="openshift, firewalls" onChange={(e) => onNode(node.id, { systems: splitList(e.target.value) })} spellCheck={false} />
           </Field>
@@ -1429,6 +1451,8 @@ select.input { cursor:pointer; }
 .reusetitle { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600; color:${T.ink}; }
 .reusehint { font-size:11px; color:${T.sub}; }
 .reuseflag { display:inline-flex; align-items:center; gap:3px; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:${T.quick}; border:1px solid ${T.quick}; border-radius:20px; padding:1px 6px; }
+.autoflag { display:inline-flex; align-items:center; gap:3px; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:${T.quick}; border:1px solid ${T.quick}; border-radius:20px; padding:1px 6px; }
+.manualflag { display:inline-flex; align-items:center; gap:3px; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:${T.plan}; border:1px solid ${T.plan}; border-radius:20px; padding:1px 6px; }
 .mbpmgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:2px 0 4px; }
 .mfield { display:block; }
 .mlbl { display:block; font-size:11px; color:${T.sub}; margin-bottom:3px; line-height:1.2; min-height:26px; }

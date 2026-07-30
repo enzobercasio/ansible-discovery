@@ -17,6 +17,7 @@ agent analyse the exported spec for completeness and generate content.
 - **Swimlanes** — one lane per team; drag a step between lanes to change who owns it.
 - **Node types** — Step/Role, Approval gate, Decision, External dependency, Trigger, Terminus.
 - **Typed dependencies** — `sequence` (runs after), `data` (needs a named artifact), and external.
+- **Automation status** — flag each step Manual or Automated to see current-state coverage at a glance; shown on the card, the Backlog, and every export.
 - **Suitability scoring** — frequency, standardisation, error-proneness, effort, banded into Quick win / Plan / Defer, with a *verified* reusability promotion.
 - **Process metrics (MBPM)** — per-step process/lead time, %C&A and resources, rolled up into activity ratio and rolled %C&A (Metrics-Based Process Mapping baseline).
 - **Handoff analysis** — every arrow that crosses a lane is counted as a cross-team handoff.
