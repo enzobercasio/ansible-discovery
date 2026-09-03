@@ -62,9 +62,18 @@ function mbpmSummary(tasks) {
 }
 const ratioColor = (r) => (r == null ? T.faint : r < 25 ? T.accent : r < 50 ? T.plan : T.quick);
 const caColor = (c) => (c == null ? T.faint : c < 80 ? T.accent : c < 95 ? T.plan : T.quick);
-const laneIndex = (teams, teamId) => Math.max(0, teams.findIndex((t) => t.id === teamId));
-const clampToLane = (y, idx) =>
-  Math.min((idx + 1) * LANE_H - NODE_H - PAD, Math.max(idx * LANE_H + PAD + 22, y));
+// Node y is stored relative to its own lane's top, so a lane can grow to fit
+// however many steps it holds instead of clamping them into a fixed band.
+function computeLaneLayout(teams, nodes) {
+  let top = 0;
+  return teams.map((t) => {
+    const height = Math.max(LANE_H, nodes.reduce((m, n) => (n.team === t.id ? Math.max(m, n.y + NODE_H + PAD) : m), 0));
+    const row = { id: t.id, top, height };
+    top += height;
+    return row;
+  });
+}
+const clampToLane = (y, laneH) => Math.min(laneH - NODE_H - PAD, Math.max(PAD + 22, y));
 
 /* ------------------------------------------------------------------ */
 /*  Spec builder — the AAP-shaped output                               */
@@ -281,8 +290,11 @@ function buildExportSVG(processName, nodes, edges, teams, worldH) {
   const H = TITLE_H + worldH;
   const teamById = Object.fromEntries(teams.map((t) => [t.id, t]));
   const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
-  const gOut = (n) => ({ x: n.x + NODE_W, y: n.y + NODE_H / 2 });
-  const gIn = (n) => ({ x: n.x, y: n.y + NODE_H / 2 });
+  const laneLayout = computeLaneLayout(teams, nodes);
+  const laneTopById = Object.fromEntries(laneLayout.map((r) => [r.id, r.top]));
+  const absY = (n) => (laneTopById[n.team] ?? 0) + n.y;
+  const gOut = (n) => ({ x: n.x + NODE_W, y: absY(n) + NODE_H / 2 });
+  const gIn = (n) => ({ x: n.x, y: absY(n) + NODE_H / 2 });
   const gPath = (a, b) => { const off = Math.max(60, Math.abs(b.x - a.x) * 0.4); return `M ${a.x} ${a.y} C ${a.x + off} ${a.y}, ${b.x - off} ${b.y}, ${b.x} ${b.y}`; };
 
   let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="ui-sans-serif, system-ui, Segoe UI, Roboto, sans-serif">`;
@@ -302,10 +314,11 @@ function buildExportSVG(processName, nodes, edges, teams, worldH) {
   s += `</defs><g transform="translate(0,${TITLE_H})">`;
 
   // lanes
-  teams.forEach((t, i) => {
-    const y = i * LANE_H;
-    s += `<rect x="0" y="${y}" width="${W}" height="${LANE_H}" fill="${t.color}14"/>`;
-    s += `<line x1="0" y1="${y + LANE_H}" x2="${W}" y2="${y + LANE_H}" stroke="${T.line}"/>`;
+  laneLayout.forEach((row) => {
+    const t = teamById[row.id];
+    const y = row.top;
+    s += `<rect x="0" y="${y}" width="${W}" height="${row.height}" fill="${t.color}14"/>`;
+    s += `<line x1="0" y1="${y + row.height}" x2="${W}" y2="${y + row.height}" stroke="${T.line}"/>`;
     const w = 24 + (t.name.length * 7);
     s += `<rect x="12" y="${y + 10}" width="${w}" height="22" rx="11" fill="#fff" stroke="${t.color}"/>`;
     s += `<circle cx="26" cy="${y + 21}" r="4" fill="${t.color}"/>`;
@@ -335,7 +348,7 @@ function buildExportSVG(processName, nodes, edges, teams, worldH) {
   nodes.forEach((n) => {
     const M = NODE_META[n.type], isTask = n.type === "task";
     const fill = n.type === "external" ? "#FFF7ED" : "#ffffff";
-    s += `<g transform="translate(${n.x},${n.y})">`;
+    s += `<g transform="translate(${n.x},${absY(n)})">`;
     s += `<rect x="0" y="0" width="${NODE_W}" height="${NODE_H}" rx="11" fill="${fill}" stroke="${T.line}"${n.type === "external" ? ' stroke-dasharray="4 3"' : ""}/>`;
     s += `<path d="M0 11 a11 11 0 0 1 11 -11 v${NODE_H} h-6 a5 5 0 0 1 -5 -5 Z" fill="${M.color}"/>`;
     s += `<rect x="5" y="1" width="4" height="${NODE_H - 2}" fill="${M.color}"/>`;
@@ -469,7 +482,7 @@ function specToGraph(spec) {
   const teams = teamIds.map((id, i) => ({ id, name: prettify(id), color: TEAM_PALETTE[i % TEAM_PALETTE.length] }));
   const laneOf = (t) => (teamIds.includes(t) ? t : teamIds[0]);
   const laneIdx = (t) => Math.max(0, teamIds.indexOf(laneOf(t)));
-  const Y = (i) => i * LANE_H + PAD + 22;
+  const Y = () => PAD + 22; // lane-relative now; a node's actual screen position is laneTop(team) + y
 
   const order = [];
   (spec.workflow || []).forEach((w) => { if (typeof w === "string") order.push(w); else if (w && w.approval) order.push(w.approval); });
@@ -570,7 +583,7 @@ const JSON_SCHEMA = {
    plus optional external "report" nodes that named steps write to. */
 function flow(teams, seq, externals) {
   const laneIdx = (t) => Math.max(0, teams.findIndex((x) => x.id === t));
-  const Y = (i) => i * LANE_H + PAD + 22;
+  const Y = () => PAD + 22; // lane-relative now; a node's actual screen position is laneTop(team) + y
   const X = (i) => 20 + i * 250;
   const nodes = seq.map((st, i) => {
     const n = { id: `s_${i}`, type: st.type, team: st.team, label: st.label, x: X(i), y: Y(laneIdx(st.team)), systems: st.systems || [], inputs: st.inputs || [], integration: "api", scores: st.type === "task" ? (st.scores || { frequency: 5, standardisation: 5, errorProneness: 2, complexity: 2 }) : {} };
@@ -640,7 +653,7 @@ function seed(variant = "current") {
     { id: "netsec", name: "Network / Security", color: "#7C3AED" },
     { id: "servicemgmt", name: "Service Mgmt", color: "#D97706" },
   ];
-  const Y = (i) => i * LANE_H + PAD + 22;
+  const Y = () => PAD + 22; // lane-relative now; a node's actual screen position is laneTop(team) + y
 
   if (variant === "automated") {
     // Future state: same deployment, automated with Ansible. Manual steps and
@@ -731,7 +744,11 @@ export default function App() {
   const spec = useMemo(() => buildSpec(processName, nodes, edges, teams), [processName, nodes, edges, teams]);
   const yaml = useMemo(() => toYaml(spec), [spec]);
   const puml = useMemo(() => buildPlantUML(processName, nodes, edges, teams), [processName, nodes, edges, teams]);
-  const worldH = Math.max(teams.length * LANE_H, 420);
+  const laneLayout = useMemo(() => computeLaneLayout(teams, nodes), [teams, nodes]);
+  const laneTopById = useMemo(() => Object.fromEntries(laneLayout.map((r) => [r.id, r.top])), [laneLayout]);
+  const laneHeightById = useMemo(() => Object.fromEntries(laneLayout.map((r) => [r.id, r.height])), [laneLayout]);
+  const absY = useCallback((n) => (laneTopById[n.team] ?? 0) + n.y, [laneTopById]);
+  const worldH = laneLayout.length ? Math.max(laneLayout[laneLayout.length - 1].top + laneLayout[laneLayout.length - 1].height, 420) : 420;
   const contentW = useMemo(() => Math.max(WORLD_W, nodes.reduce((m, n) => Math.max(m, n.x + NODE_W), 0) + 80), [nodes]);
 
   const local = useCallback((e) => {
@@ -748,18 +765,21 @@ export default function App() {
   const recolorTeam = (id) => setTeams((ts) => ts.map((t) => (t.id === id ? { ...t, color: TEAM_PALETTE[(TEAM_PALETTE.indexOf(t.color) + 1) % TEAM_PALETTE.length] } : t)));
   const removeTeam = (id) => {
     if (teams.length <= 1) return;
-    const fallback = teams.find((t) => t.id !== id).id;
     const fIdx = 0;
-    setNodes((ns) => ns.map((n) => (n.team === id ? { ...n, team: teams[fIdx].id, y: clampToLane(n.y, fIdx) } : n)));
+    const fallbackId = teams[fIdx].id;
+    setNodes((ns) => ns.map((n) => (n.team === id ? { ...n, team: fallbackId, y: clampToLane(n.y, laneHeightById[fallbackId] ?? LANE_H) } : n)));
     setTeams((ts) => ts.filter((t) => t.id !== id));
   };
 
   /* ---- nodes / edges ---- */
   const addNode = (type) => {
+    const teamId = teams[0].id;
+    const inLane = nodes.filter((n) => n.team === teamId);
+    const y = inLane.length ? Math.max(...inLane.map((n) => n.y)) + NODE_H + 24 : PAD + 22;
     const n = {
-      id: uid("n"), type, team: teams[0].id,
+      id: uid("n"), type, team: teamId,
       label: type === "task" ? "New step" : type === "approval" ? "Approval" : type === "gateway" ? "Decision?" : type === "external" ? "External system" : type === "start" ? "Trigger" : "Done",
-      x: 80, y: clampToLane(PAD + 22, 0),
+      x: 80, y,
       systems: [], inputs: [], integration: "api", automated: type === "task" ? false : undefined,
       reuseClaim: false, reuseParam: false, reuseOwner: false,
       metrics: type === "task" ? { resources: 1, processTime: 0, leadTime: 0, pctCA: 100 } : undefined,
@@ -771,8 +791,7 @@ export default function App() {
   const updateNode = (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, ...patch } : n)));
   const updateScore = (id, key, val) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, scores: { ...n.scores, [key]: val } } : n)));
   const setNodeTeam = (id, teamId) => {
-    const idx = laneIndex(teams, teamId);
-    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, team: teamId, y: clampToLane(n.y, idx) } : n)));
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, team: teamId, y: clampToLane(n.y, laneHeightById[teamId] ?? LANE_H) } : n)));
   };
   const updateEdge = (id, patch) => setEdges((es) => es.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   const deleteNode = (id) => { setNodes((ns) => ns.filter((n) => n.id !== id)); setEdges((es) => es.filter((e) => e.source !== id && e.target !== id)); setSel(null); };
@@ -781,7 +800,7 @@ export default function App() {
   /* ---- pointer ---- */
   const onNodeDown = (e, n) => {
     e.stopPropagation(); if (connecting) return;
-    const p = local(e); drag.current = { id: n.id, dx: p.x - n.x, dy: p.y - n.y };
+    const p = local(e); drag.current = { id: n.id, dx: p.x - n.x, dy: p.y - absY(n) };
     setSel({ kind: "node", id: n.id }); setTab("inspector");
   };
   const onHandleDown = (e, n) => { e.stopPropagation(); const p = local(e); setConnecting({ from: n.id, x: p.x, y: p.y }); };
@@ -797,9 +816,11 @@ export default function App() {
     if (drag.current) {
       const p = local(e);
       const nx = Math.max(0, Math.round(p.x - drag.current.dx));
-      const cy = Math.round(p.y - drag.current.dy) + NODE_H / 2;
-      const idx = Math.min(teams.length - 1, Math.max(0, Math.floor(cy / LANE_H)));
-      updateNode(drag.current.id, { x: nx, y: clampToLane(Math.round(p.y - drag.current.dy), idx), team: teams[idx].id });
+      const absYTop = Math.round(p.y - drag.current.dy);
+      const cy = absYTop + NODE_H / 2;
+      let idx = laneLayout.findIndex((row) => cy >= row.top && cy < row.top + row.height);
+      if (idx === -1) idx = cy < 0 ? 0 : laneLayout.length - 1;
+      updateNode(drag.current.id, { x: nx, y: clampToLane(absYTop - laneLayout[idx].top, laneLayout[idx].height), team: teams[idx].id });
     } else if (connecting) { const p = local(e); setConnecting((c) => ({ ...c, x: p.x, y: p.y })); }
   };
   const onWorldUp = () => { drag.current = null; setConnecting(null); };
@@ -867,8 +888,8 @@ export default function App() {
   };
 
   /* ---- edge geometry: right-center -> left-center ---- */
-  const outA = (n) => ({ x: n.x + NODE_W, y: n.y + NODE_H / 2 });
-  const inA = (n) => ({ x: n.x, y: n.y + NODE_H / 2 });
+  const outA = (n) => ({ x: n.x + NODE_W, y: absY(n) + NODE_H / 2 });
+  const inA = (n) => ({ x: n.x, y: absY(n) + NODE_H / 2 });
   const path = (a, b) => { const off = Math.max(60, Math.abs(b.x - a.x) * 0.4); return `M ${a.x} ${a.y} C ${a.x + off} ${a.y}, ${b.x - off} ${b.y}, ${b.x} ${b.y}`; };
 
   const selNode = sel?.kind === "node" ? nodeById[sel.id] : null;
@@ -959,13 +980,16 @@ export default function App() {
               onPointerMove={onWorldMove} onPointerUp={onWorldUp} onPointerDown={() => setSel(null)}>
 
               {/* lanes */}
-              {teams.map((t, i) => (
-                <div key={t.id} className="lane" style={{ top: i * LANE_H, height: LANE_H, width: contentW, background: t.color + "0F", borderBottomColor: T.line }}>
-                  <span className="lanelabel" style={{ color: t.color, borderColor: t.color }}>
-                    <span className="lanedot" style={{ background: t.color }} /> {t.name}
-                  </span>
-                </div>
-              ))}
+              {laneLayout.map((row) => {
+                const t = teamById[row.id];
+                return (
+                  <div key={row.id} className="lane" style={{ top: row.top, height: row.height, width: contentW, background: t.color + "0F", borderBottomColor: T.line }}>
+                    <span className="lanelabel" style={{ color: t.color, borderColor: t.color }}>
+                      <span className="lanedot" style={{ background: t.color }} /> {t.name}
+                    </span>
+                  </div>
+                );
+              })}
 
               {/* edges */}
               <svg className="edges" width={contentW} height={worldH}>
@@ -1021,7 +1045,7 @@ export default function App() {
                 const sc = isTask ? scoreOf(n) : null, band = isTask ? bandOf(sc) : null;
                 return (
                   <div key={n.id} className={`node ${n.type === "external" ? "ext" : ""}`}
-                    style={{ left: n.x, top: n.y, width: NODE_W, minHeight: NODE_H, borderColor: isSel ? M.color : T.line,
+                    style={{ left: n.x, top: absY(n), width: NODE_W, minHeight: NODE_H, borderColor: isSel ? M.color : T.line,
                       boxShadow: isSel ? `0 0 0 2px ${M.color}33, 0 6px 16px rgba(15,23,42,.12)` : "0 2px 8px rgba(15,23,42,.06)" }}
                     onPointerDown={(e) => onNodeDown(e, n)} onPointerUp={(e) => onNodeUp(e, n)}>
                     <span className="rail" style={{ background: M.color }} />

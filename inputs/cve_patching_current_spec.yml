@@ -1,0 +1,82 @@
+process: app_deploy_current
+generated_by: ansible-automation-discovery-canvas
+teams: [platform, servicemgmt]
+target_systems: []
+baseline:            # metrics-based process mapping (current state)
+  total_process_time: 0
+  total_lead_time: 0
+  activity_ratio_pct: null
+  rolled_complete_accurate_pct: 100
+  total_resources: 5
+roles:
+  - name: extract_repo_url_branch_commit_hash
+    label: "Extract repo_url, branch, commit hash"
+    owner_team: platform
+    priority_score: 6
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 3, standardisation: 3, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 0, lead_time: 0, pct_complete_accurate: 100 }
+    target_systems: []
+    inputs: []
+    depends_on: []
+    handoff: false
+  - name: fetch_patch_file
+    label: "Fetch Patch File"
+    owner_team: platform
+    priority_score: 6
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 3, standardisation: 3, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 0, lead_time: 0, pct_complete_accurate: 100 }
+    target_systems: []
+    inputs: []
+    depends_on: [extract_repo_url_branch_commit_hash]
+    handoff: false
+  - name: patch
+    label: "Patch"
+    owner_team: platform
+    priority_score: 6
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 3, standardisation: 3, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 0, lead_time: 0, pct_complete_accurate: 100 }
+    target_systems: []
+    inputs: []
+    depends_on: [fetch_patch_file]
+    handoff: false
+  - name: reboot_systems
+    label: "Reboot Systems"
+    owner_team: platform
+    priority_score: 6
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 3, standardisation: 3, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 0, lead_time: 0, pct_complete_accurate: 100 }
+    target_systems: []
+    inputs: []
+    depends_on: [patch]
+    handoff: false
+  - name: validate_patches_are_applied
+    label: "Validate Patches are applied"
+    owner_team: platform
+    priority_score: 6
+    band: plan
+    automated: false
+    reusable: false
+    suitability: { frequency: 3, standardisation: 3, error_proneness: 3, complexity: 3 }
+    metrics: { resources: 1, process_time: 0, lead_time: 0, pct_complete_accurate: 100 }
+    target_systems: []
+    inputs: []
+    depends_on: [reboot_systems]
+    handoff: false
+workflow:            # -> AAP workflow job template
+  - extract_repo_url_branch_commit_hash
+  - fetch_patch_file
+  - patch
+  - reboot_systems
+  - validate_patches_are_applied
