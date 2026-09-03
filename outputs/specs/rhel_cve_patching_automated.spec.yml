@@ -1,0 +1,182 @@
+process: rhel_cve_patching_automated
+generated_by: ansible-automation-discovery-canvas
+teams: [platform, servicemgmt, application]
+target_systems: [git, rhel, techlens]
+baseline:            # metrics-based process mapping (current state)
+  total_process_time: 45
+  total_lead_time: 93
+  activity_ratio_pct: 48.4
+  rolled_complete_accurate_pct: 91.3
+  total_resources: 1
+roles:
+  - name: extract_repo_url_branch_commit_hash
+    label: "Extract repo_url, branch, commit hash"
+    owner_team: platform
+    priority_score: 7.9
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 4, standardisation: 5, error_proneness: 2, complexity: 1 }
+    metrics: { resources: 0, process_time: 4, lead_time: 12, pct_complete_accurate: 99 }
+    target_systems: [git]
+    inputs: [cve_id]
+    depends_on: []
+    handoff: false
+  - name: fetch_patch_file
+    label: "Fetch Patch File"
+    owner_team: platform
+    priority_score: 7.9
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 4, standardisation: 5, error_proneness: 2, complexity: 1 }
+    metrics: { resources: 0, process_time: 3, lead_time: 6, pct_complete_accurate: 99 }
+    target_systems: [git]
+    inputs: [repo_url, branch, commit_hash]
+    depends_on: [extract_repo_url_branch_commit_hash]
+    handoff: false
+    consumes:
+      - from: extract_repo_url_branch_commit_hash
+        artifact: commit_reference
+  - name: pre_patch_validation
+    label: "Pre-Patch Validation (agent status, filesystem size, kernel version)"
+    owner_team: platform
+    priority_score: 7.9
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 4, standardisation: 5, error_proneness: 2, complexity: 1 }
+    metrics: { resources: 0, process_time: 5, lead_time: 8, pct_complete_accurate: 99 }
+    target_systems: [rhel]
+    inputs: [target_hosts, agent_status_check, filesystem_threshold, kernel_version_baseline]
+    depends_on: [fetch_patch_file]
+    handoff: false
+  - name: stop_application
+    label: "Stop Application"
+    owner_team: platform
+    priority_score: 7.5
+    band: quick_win
+    automated: true
+    reusable: false
+    suitability: { frequency: 4, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 0, process_time: 3, lead_time: 5, pct_complete_accurate: 99 }
+    target_systems: [rhel]
+    inputs: [app_stop_script, target_hosts]
+    depends_on: [pre_patch_validation]
+    handoff: false
+  - name: patch
+    label: "Patch"
+    owner_team: platform
+    priority_score: 7.6
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 4, standardisation: 5, error_proneness: 2, complexity: 2 }
+    metrics: { resources: 0, process_time: 9, lead_time: 24, pct_complete_accurate: 99 }
+    target_systems: [rhel]
+    inputs: [patch_file, target_hosts]
+    depends_on: [fetch_patch_file, stop_application]
+    handoff: false
+    consumes:
+      - from: fetch_patch_file
+        artifact: patch_file
+  - name: reboot_systems
+    label: "Reboot Systems"
+    owner_team: platform
+    priority_score: 7.5
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 4, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 1, process_time: 4, lead_time: 12, pct_complete_accurate: 99 }
+    target_systems: [rhel]
+    inputs: [target_hosts]
+    depends_on: [patch_readiness_review]
+    handoff: true
+  - name: start_application
+    label: "Start Application"
+    owner_team: platform
+    priority_score: 7.5
+    band: quick_win
+    automated: true
+    reusable: false
+    suitability: { frequency: 4, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 0, process_time: 4, lead_time: 6, pct_complete_accurate: 99 }
+    target_systems: [rhel]
+    inputs: [app_start_script, target_hosts]
+    depends_on: [reboot_systems]
+    handoff: false
+  - name: validate_application
+    label: "Validate Application"
+    owner_team: platform
+    priority_score: 7.5
+    band: quick_win
+    automated: true
+    reusable: false
+    suitability: { frequency: 4, standardisation: 4, error_proneness: 3, complexity: 2 }
+    metrics: { resources: 0, process_time: 4, lead_time: 6, pct_complete_accurate: 99 }
+    target_systems: [rhel]
+    inputs: [app_validate_script, target_hosts]
+    depends_on: [start_application]
+    handoff: false
+  - name: validate_patches_are_applied
+    label: "Validate Patches are Applied (agent status, filesystem size, kernel version, baseline comparison)"
+    owner_team: platform
+    priority_score: 7.6
+    band: quick_win
+    automated: true
+    reusable: true
+    suitability: { frequency: 4, standardisation: 5, error_proneness: 2, complexity: 2 }
+    metrics: { resources: 0, process_time: 9, lead_time: 14, pct_complete_accurate: 99 }
+    target_systems: [rhel, techlens]
+    inputs: [cve_id, target_hosts, agent_status_check, filesystem_threshold, kernel_version_baseline, baseline_report]
+    depends_on: [validate_application, pre_patch_validation]
+    handoff: false
+    consumes:
+      - from: validate_application
+        artifact: app_health_status
+      - from: pre_patch_validation
+        artifact: pre_patch_baseline
+approvals:
+  - name: patch_readiness_review
+    owner_team: servicemgmt
+    depends_on: [patch]
+external_dependencies:
+  - name: cve_source_feed
+    owner_team: platform
+    integration: api
+    consumed_by: [extract_repo_url_branch_commit_hash]
+  - name: baseline_report_source
+    owner_team: platform
+    integration: api
+    consumed_by: [validate_patches_are_applied]
+  - name: application_lifecycle_scripts
+    owner_team: application
+    integration: manual
+    consumed_by: [stop_application, start_application, validate_application]
+  - name: change_record_update
+    owner_team: servicemgmt
+    integration: api
+    consumed_by: [validate_patches_are_applied]
+handoffs:
+  - from: patch
+    from_team: platform
+    to: patch_readiness_review
+    to_team: servicemgmt
+    type: sequence
+  - from: patch_readiness_review
+    from_team: servicemgmt
+    to: reboot_systems
+    to_team: platform
+    type: sequence
+workflow:            # -> AAP workflow job template
+  - extract_repo_url_branch_commit_hash
+  - fetch_patch_file
+  - pre_patch_validation
+  - stop_application
+  - patch
+  - { approval: patch_readiness_review }
+  - reboot_systems
+  - start_application
+  - validate_application
+  - validate_patches_are_applied
